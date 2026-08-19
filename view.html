@@ -113,7 +113,7 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
 <div class="wrap">
   <header class="masthead">
     <div>
-      <h1 id="masthead-title">// WAR LOG</h1>
+      <h1 id="masthead-title">MADMONKEYS</h1>
       <div class="sub">View Only — Party Lineup</div>
     </div>
   </header>
@@ -170,7 +170,7 @@ async function render(){
     return;
   }
 
-  document.getElementById('masthead-title').textContent = (lineup.guild_settings?.name || 'Guild').toUpperCase() + ' // WAR LOG';
+  document.getElementById('masthead-title').textContent = 'MADMONKEYS';
   document.title = lineup.name + ' — Guild War Log';
 
   const meta = [lineup.date, lineup.map_name, lineup.opposing_guild ? 'vs '+lineup.opposing_guild : null].filter(Boolean).join('   ·   ');
