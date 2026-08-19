@@ -156,6 +156,26 @@ td.num, th.num{ text-align:right; }
 .job-cell select{ margin-bottom:0; }
 td input, td select{ padding:5px 6px; font-size:12.5px; margin-bottom:0; }
 .row-del{ background:none; border:none; color:var(--magenta); cursor:pointer; font-size:14px; padding:2px 6px; }
+.fr-check, #fr-select-all{ width:16px; height:16px; accent-color:var(--cyan); cursor:pointer; }
+.roster-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:14px; margin-top:4px; }
+.roster-card{ position:relative; border:1px solid var(--line); background:var(--bg-panel-2); padding:14px 14px 12px; transition:border-color .15s; }
+.roster-card:hover{ border-color:var(--line-strong); }
+.roster-card.is-selected{ border-color:var(--cyan); box-shadow:0 0 0 1px var(--cyan) inset; }
+.roster-card-top{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.roster-mmid-input{ width:100% !important; font-family:'Share Tech Mono',monospace; font-size:12px !important; font-weight:600; background:transparent !important; border:none !important; border-bottom:1px dashed transparent; color:var(--ink-soft); padding:2px 0 !important; }
+tbody tr.is-selected{ background:rgba(45,226,255,.08); }
+.roster-mmid-input:hover, .roster-mmid-input:focus{ border-bottom-color:var(--cyan-dim); outline:none; color:var(--ink); }
+.roster-name-input{ width:100% !important; font-family:'Orbitron',sans-serif; font-weight:700; font-size:15px !important; background:transparent !important; border:none !important; color:var(--ink); padding:2px 0 !important; border-bottom:1px solid transparent; margin-bottom:0; }
+.roster-name-input:hover, .roster-name-input:focus{ border-bottom-color:var(--cyan); outline:none; }
+.roster-job-select{ width:auto !important; background:transparent !important; border:none !important; padding:2px 0 !important; font-family:'Rajdhani',sans-serif; font-weight:600; font-size:14px !important; color:var(--ink); }
+.roster-job-select:hover, .roster-job-select:focus{ outline:none; color:var(--cyan); }
+.roster-job-row{ display:flex; align-items:center; gap:8px; }
+.roster-job-row select{ margin-bottom:0; }
+.roster-toolbar{ display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin:16px 0 12px; }
+.roster-select-all{ display:flex; align-items:center; gap:8px; cursor:pointer; margin:0; font-size:11.5px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.05em; font-weight:600; }
+.roster-sort{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.roster-sort span{ font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.05em; }
+.roster-sort .btn.active{ color:var(--cyan); border-color:var(--cyan); }
 @media (max-width:800px){
   table.responsive thead{ display:none; }
   table.responsive, table.responsive tbody, table.responsive tr, table.responsive td{ display:block; width:100%; }
@@ -167,6 +187,7 @@ td input, td select{ padding:5px 6px; font-size:12.5px; margin-bottom:0; }
 
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -316,6 +337,7 @@ let picker = null; // {ti,pi,si}
 let currentTab = 'overview';
 let expandedSessionId = null;
 let fullRosterSort = { key:'name', dir:'asc' };
+let frSelected = new Set();
 let attendanceSort = { key:'attendance', dir:'desc' };
 
 function todayStr(){ return new Date().toISOString().slice(0,10); }
@@ -789,7 +811,77 @@ function renderSessionBody(id){
 }
 
 /* ========================= Full Roster ========================= */
+async function handleRosterExcelFile(file){
+  if(!file) return;
+  const statusEl = $('fr-import-status');
+  const setImportStatus = (cls,msg)=>{ const el=$('fr-import-status'); if(el){ el.className='status-line'+(cls?' '+cls:''); el.textContent=msg; } };
+  setImportStatus('', 'Reading '+file.name+'…');
+  try{
+    if(typeof XLSX === 'undefined') throw new Error('Import library not loaded');
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type:'array' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header:1, defval:'' });
+
+    let mmidIdx=0, nameIdx=1, jobIdx=2, startRow=0;
+    if(rows.length){
+      const header = rows[0].map(c=>String(c||'').trim().toLowerCase());
+      const ni = header.indexOf('name');
+      if(ni>=0){
+        mmidIdx = header.indexOf('mmid');
+        nameIdx = ni;
+        jobIdx = header.indexOf('job');
+        startRow = 1;
+      }
+    }
+    const parsed = [];
+    for(let i=startRow;i<rows.length;i++){
+      const row = rows[i];
+      const name = String((nameIdx>=0 ? row[nameIdx] : row[1]) || '').trim();
+      if(!name) continue;
+      const mmid = String((mmidIdx>=0 ? row[mmidIdx] : row[0]) || '').trim();
+      const job = String((jobIdx>=0 ? row[jobIdx] : row[2]) || '').trim();
+      parsed.push({ mmid, name, job });
+    }
+    if(parsed.length===0) throw new Error('No rows found');
+
+    let added=0, updated=0;
+    for(const p of parsed){
+      const existing = roster.find(m=>m.name===p.name);
+      if(existing){
+        await sb.from('roster_members').update({ mmid:p.mmid, job:p.job }).eq('id', existing.id);
+        updated++;
+      } else {
+        const { error } = await sb.from('roster_members').insert({ guild_id:guildId, mmid:p.mmid, name:p.name, job:p.job });
+        if(!error) added++;
+      }
+    }
+    await loadRoster();
+    renderStatStrip();
+    renderFullRosterTab();
+    setImportStatus('ok', `Imported ${parsed.length} row(s) — ${added} new, ${updated} updated.`);
+  }catch(err){
+    setImportStatus('error', "Couldn't read that file. Use a .xlsx, .xls, or .csv with Name (and optionally MMID/Job) columns.");
+  }
+}
+
+function exportRosterExcel(){
+  if(typeof XLSX === 'undefined'){ setStatus('Export library not loaded.', 'error'); return; }
+  const sorted = [...roster].sort((a,b)=>{
+    const av=(a[fullRosterSort.key]||'').toString(), bv=(b[fullRosterSort.key]||'').toString();
+    return av.localeCompare(bv,undefined,{numeric:true}) * (fullRosterSort.dir==='asc'?1:-1);
+  });
+  const aoa = [['MMID','Name','Job'], ...sorted.map(m=>[m.mmid||'', m.name||'', m.job||''])];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:10},{wch:24},{wch:16}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Roster');
+  const stamp = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `guild-roster-${stamp}.xlsx`);
+}
+
 function renderFullRosterTab(){
+  frSelected = new Set([...frSelected].filter(id=>roster.some(m=>m.id===id)));
   const sorted = [...roster].sort((a,b)=>{
     const av=(a[fullRosterSort.key]||'').toString(), bv=(b[fullRosterSort.key]||'').toString();
     return av.localeCompare(bv,undefined,{numeric:true}) * (fullRosterSort.dir==='asc'?1:-1);
@@ -798,7 +890,14 @@ function renderFullRosterTab(){
   $('fullroster-content').innerHTML = `
     <h2 class="section-title">Full Roster</h2>
     <p class="section-hint">MMID, Name, and Job — members here are who you can assign into parties and who show up in Attendance.</p>
-    <div class="field-row" style="align-items:flex-end;">
+    <div class="btn-row" style="margin-top:0; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <button class="btn gold small" id="fr-import-btn">Import Excel / CSV</button>
+      <input type="file" id="fr-excel-input" accept=".xlsx,.xls,.csv" style="display:none;">
+      <button class="btn ghost small" id="fr-export-btn">Export Excel / CSV</button>
+      <button class="btn danger small" id="fr-delete-selected-btn" disabled>Delete Selected (0)</button>
+    </div>
+    <div class="status-line" id="fr-import-status"></div>
+    <div class="field-row" style="align-items:flex-end; margin-top:14px;">
       <div><label>MMID</label><input type="text" id="fr-mmid" placeholder="MM004"></div>
       <div style="flex:2;"><label>Name</label><input type="text" id="fr-name" placeholder="Player name"></div>
       <div style="flex:2;"><label>Job</label><select id="fr-job"></select></div>
@@ -810,21 +909,29 @@ function renderFullRosterTab(){
         <button class="btn gold small" id="fr-bulk-btn" style="margin-top:8px;">Add all</button>
       </div>
     </details>
-    <h3 style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin:16px 0 6px;">${roster.length} member${roster.length===1?'':'s'}</h3>
+    <h3 style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin:16px 0 0;">${roster.length} member${roster.length===1?'':'s'}</h3>
     ${sorted.length ? `
+    <div class="roster-toolbar">
+      <label class="roster-select-all">
+        <input type="checkbox" id="fr-select-all" ${sorted.length && sorted.every(m=>frSelected.has(m.id))?'checked':''}>
+        Select all
+      </label>
+    </div>
     <table class="responsive">
       <thead><tr>
+        <th></th>
         <th class="sortable" data-sort-roster="mmid">MMID${arrow('mmid')}</th>
         <th class="sortable" data-sort-roster="name">Name${arrow('name')}</th>
         <th class="sortable" data-sort-roster="job">Job${arrow('job')}</th>
         <th></th>
       </tr></thead>
       <tbody>${sorted.map(m=>`
-        <tr>
-          <td data-label="MMID"><input type="text" data-fr-field="mmid" data-fr-id="${m.id}" value="${escapeHtml(m.mmid||'')}"></td>
-          <td data-label="Name"><input type="text" data-fr-field="name" data-fr-id="${m.id}" value="${escapeHtml(m.name)}"></td>
-          <td data-label="Job"><div class="job-cell">${jobIconSvg(m.job)}<select data-fr-field="job" data-fr-id="${m.id}"></select></div></td>
-          <td data-label=""><button class="row-del" data-fr-remove="${m.id}">✕</button></td>
+        <tr class="${frSelected.has(m.id)?'is-selected':''}">
+          <td data-label=""><input type="checkbox" class="fr-check" data-fr-check="${m.id}" ${frSelected.has(m.id)?'checked':''}></td>
+          <td data-label="MMID"><input type="text" class="roster-mmid-input" data-fr-field="mmid" data-fr-id="${m.id}" value="${escapeHtml(m.mmid||'')}" placeholder="MMID"></td>
+          <td data-label="Name"><input type="text" class="roster-name-input" data-fr-field="name" data-fr-id="${m.id}" value="${escapeHtml(m.name)}" placeholder="Name"></td>
+          <td data-label="Job"><div class="job-cell">${jobIconSvg(m.job)}<select class="roster-job-select" data-fr-field="job" data-fr-id="${m.id}"></select></div></td>
+          <td data-label=""><button class="row-del" data-fr-remove="${m.id}" title="Delete this member">✕</button></td>
         </tr>
       `).join('')}</tbody>
     </table>` : '<div class="empty-state">No members added yet.</div>'}
@@ -833,6 +940,42 @@ function renderFullRosterTab(){
   sorted.forEach(m=>{
     const sel = document.querySelector(`select[data-fr-field="job"][data-fr-id="${m.id}"]`);
     if(sel) populateJobSelect(sel, m.job);
+  });
+
+  $('fr-import-btn').addEventListener('click', ()=>$('fr-excel-input').click());
+  $('fr-excel-input').addEventListener('change', e=>handleRosterExcelFile(e.target.files[0]));
+  $('fr-export-btn').addEventListener('click', exportRosterExcel);
+
+  const deleteSelBtn = $('fr-delete-selected-btn');
+  const updateDeleteSelBtn = ()=>{
+    deleteSelBtn.textContent = `Delete Selected (${frSelected.size})`;
+    deleteSelBtn.disabled = frSelected.size===0;
+  };
+  updateDeleteSelBtn();
+  const selectAllEl = $('fr-select-all');
+  if(selectAllEl) selectAllEl.addEventListener('change', ()=>{
+    if(selectAllEl.checked) sorted.forEach(m=>frSelected.add(m.id));
+    else sorted.forEach(m=>frSelected.delete(m.id));
+    renderFullRosterTab();
+  });
+  document.querySelectorAll('[data-fr-check]').forEach(cb=>cb.addEventListener('change', ()=>{
+    const id = cb.dataset.frCheck;
+    if(cb.checked) frSelected.add(id); else frSelected.delete(id);
+    updateDeleteSelBtn();
+    const row = cb.closest('tr');
+    if(row) row.classList.toggle('is-selected', cb.checked);
+    if(selectAllEl) selectAllEl.checked = sorted.length>0 && sorted.every(m=>frSelected.has(m.id));
+  }));
+  deleteSelBtn.addEventListener('click', async ()=>{
+    if(frSelected.size===0) return;
+    if(!confirm(`Delete ${frSelected.size} selected member(s)? This can't be undone.`)) return;
+    const ids = [...frSelected];
+    await sb.from('roster_members').delete().in('id', ids);
+    frSelected.clear();
+    await loadRoster();
+    renderStatStrip();
+    renderFullRosterTab();
+    setStatus('Deleted selected members.', 'ok');
   });
 
   $('fr-add-btn').addEventListener('click', async ()=>{
