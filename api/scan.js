@@ -14,7 +14,7 @@
 const PROMPT = `You are reading a scoreboard screenshot from a mobile MMORPG guild siege event. The table has columns: Rank (shows "MVP" for the top row, then numbers like 2, 3, 4...), Player Name, "Tablets captured/Monsters" (two numbers separated by a slash: tablets captured, then monsters), "K/A/D" (three numbers separated by slashes: kills, assists, deaths), and Total Score. Read every row top to bottom and extract it into a JSON array with this exact schema and short keys: [{"r":"rank exactly as shown, e.g. MVP or 2 or 3","n":"player name exactly as shown, keep original capitalization","t":tablets_captured_as_number,"m":monsters_as_number,"k":kills_as_number,"a":assists_as_number,"d":deaths_as_number,"s":total_score_as_number}]. Use 0 for any missing or unreadable number. Do not skip any row. Respond with ONLY the raw JSON array. No explanation, no markdown code fences, no extra text.`;
 
 // If Google renames/retires this model later, swap the string here.
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = 'gemini-3.6-flash';
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
