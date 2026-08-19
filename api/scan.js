@@ -67,18 +67,18 @@ module.exports = async (req, res) => {
     if (start >= 0 && end >= 0) raw = raw.slice(start, end + 1);
 
     let parsed;
-   try{
-     parsed = JSON.parse(raw);
-   }catch(parseErr){
-     const looksTruncated = !raw.trim().endsWith(']');
-     res.status(500).json({ error: looksTruncated
-       ? 'The response got cut off before finishing (likely a very large roster). Try scanning fewer rows per screenshot, or split it into two images.'
-       : 'Got an unreadable response from the model. Try again.' });
-     return;
-   }
-   if (!Array.isArray(parsed)) {
-     res.status(500).json({ error: 'Unexpected response shape from the model' });
-     return;
+    try{
+      parsed = JSON.parse(raw);
+    }catch(parseErr){
+      const looksTruncated = !raw.trim().endsWith(']');
+      res.status(500).json({ error: looksTruncated
+        ? 'The response got cut off before finishing (likely a very large roster). Try scanning fewer rows per screenshot, or split it into two images.'
+        : 'Got an unreadable response from the model. Try again.' });
+      return;
+    }
+    if (!Array.isArray(parsed)) {
+      res.status(500).json({ error: 'Unexpected response shape from the model' });
+      return;
     }
 
     const rows = parsed
