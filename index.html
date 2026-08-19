@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guild War Log — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;800;900&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0a0e14; --bg-panel:#111820; --bg-panel-2:#0c1119; --bg-elevated:#161f2a;
+  --ink:#e7edf3; --ink-soft:#7c8998; --ink-faint:#4a5563;
+  --cyan:#2de2ff; --cyan-dim:#3fb8cf; --magenta:#ff3d6e; --green:#3dffa0; --gold:#ffb84d;
+  --line:rgba(255,255,255,.09); --line-strong:rgba(255,255,255,.18); --shadow:rgba(0,0,0,.55);
+}
+*{box-sizing:border-box;}
+body{margin:0;}
+html,body{
+  background:radial-gradient(ellipse 900px 500px at 50% -10%, #16202c 0%, #0a0e14 55%);
+  color:var(--ink); font-family:'Rajdhani',sans-serif; font-weight:500; font-size:16px; line-height:1.5; min-height:100vh;
+}
+a{color:var(--cyan);}
+.wrap{ max-width:1300px; margin:0 auto; padding:32px 24px 70px; }
+.masthead{ display:flex; align-items:flex-end; justify-content:space-between; gap:16px; padding-bottom:16px; margin-bottom:8px; border-bottom:1px solid var(--line-strong); flex-wrap:wrap; }
+.masthead h1{ font-family:'Orbitron',sans-serif; font-weight:800; letter-spacing:.03em; text-transform:uppercase; font-size:clamp(20px,2.2vw,30px); margin:0; text-shadow:0 0 18px rgba(45,226,255,.25); }
+.masthead .sub{ font-size:13px; color:var(--ink-soft); letter-spacing:.1em; text-transform:uppercase; font-weight:600; }
+label{ font-size:12.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--ink-soft); display:block; margin-bottom:5px; font-weight:600; }
+input[type=text], input[type=date], input[type=email], input[type=number], select, textarea{
+  font-family:'Rajdhani',sans-serif; font-weight:600; font-size:15.5px; color:var(--ink); background:var(--bg-panel-2);
+  border:1px solid var(--line); border-radius:0; padding:9px 11px; width:100%;
+}
+input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 0 0 1px var(--cyan); }
+.field-row{ display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+.field-row > div{ flex:1 1 160px; }
+.btn{
+  font-family:'Rajdhani',sans-serif; font-weight:700; font-size:14px; letter-spacing:.05em; text-transform:uppercase; cursor:pointer;
+  padding:10px 18px; border:1px solid var(--cyan); background:transparent; color:var(--cyan);
+  clip-path:polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+}
+.btn:hover{ background:rgba(45,226,255,.1); }
+.btn:disabled{ opacity:.4; cursor:not-allowed; }
+.btn.gold{ border-color:var(--gold); color:var(--gold); }
+.btn.gold:hover{ background:rgba(255,184,77,.12); }
+.btn.ghost{ border-color:var(--line-strong); color:var(--ink-soft); }
+.btn.ghost:hover{ color:var(--ink); background:rgba(255,255,255,.04); }
+.btn.danger{ border-color:var(--magenta); color:var(--magenta); }
+.btn.danger:hover{ background:rgba(255,61,110,.12); }
+.btn.small{ padding:6px 12px; font-size:12px; }
+.hud-panel{ position:relative; background:var(--bg-panel); border:1px solid var(--line-strong); padding:30px 32px; box-shadow:0 4px 24px var(--shadow); margin-top:20px; }
+.corner{ position:absolute; width:16px; height:16px; pointer-events:none; }
+.corner-tl{ top:-1px; left:-1px; border-top:2px solid var(--cyan); border-left:2px solid var(--cyan); }
+.corner-tr{ top:-1px; right:-1px; border-top:2px solid var(--cyan); border-right:2px solid var(--cyan); }
+.corner-bl{ bottom:-1px; left:-1px; border-bottom:2px solid var(--cyan); border-left:2px solid var(--cyan); }
+.corner-br{ bottom:-1px; right:-1px; border-bottom:2px solid var(--cyan); border-right:2px solid var(--cyan); }
+.section-title{ font-family:'Orbitron',sans-serif; font-size:17px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; margin:0 0 8px; }
+.section-hint{ font-size:14px; color:var(--ink-soft); margin:0 0 18px; max-width:70ch; line-height:1.6; }
+.status-line{ font-size:13.5px; margin-top:10px; color:var(--ink-soft); min-height:18px; }
+.status-line.error{ color:var(--magenta); }
+.status-line.ok{ color:var(--green); }
+.empty-state{ padding:30px 10px; text-align:center; color:var(--ink-soft); font-size:14.5px; }
+.job-icon{ width:17px; height:17px; flex:0 0 auto; display:inline-block; vertical-align:middle; }
+.hidden{ display:none !important; }
+.chip{ display:inline-flex; align-items:center; gap:6px; background:var(--bg-panel-2); border:1px solid var(--line-strong); padding:5px 10px; margin:3px 4px 3px 0; font-size:13px; font-family:'Share Tech Mono',monospace; }
+.chip button{ background:none; border:none; color:var(--magenta); cursor:pointer; font-size:13px; padding:0; }
+/* team / party editing */
+.team-name-input{ font-family:'Orbitron',sans-serif; font-weight:700; font-size:17px; text-transform:uppercase; letter-spacing:.03em; background:transparent; border:none; color:var(--cyan); max-width:280px; padding:2px 0; border-bottom:1px dashed transparent; }
+.team-name-input:focus,.team-name-input:hover{ border-bottom:1px dashed var(--cyan); outline:none; }
+.team-header{ display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:16px; padding-bottom:10px; border-bottom:1px solid var(--line-strong); }
+.team-block{ margin-bottom:32px; }
+.party-grid{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:16px; margin-bottom:10px; }
+@media (max-width:1000px){ .party-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
+@media (max-width:520px){ .party-grid{ grid-template-columns:1fr; } }
+.party-card{ border:1px solid var(--line); background:var(--bg-panel-2); padding:12px; }
+.party-card-head{ display:flex; justify-content:space-between; align-items:center; font-weight:700; font-size:14px; color:var(--cyan-dim); text-transform:uppercase; letter-spacing:.04em; margin-bottom:10px; }
+.party-name-input{ background:transparent; border:none; color:var(--cyan-dim); font-weight:700; font-size:14px; text-transform:uppercase; letter-spacing:.04em; padding:2px 0; flex:1 1 auto; border-bottom:1px dashed transparent; }
+.party-name-input:hover,.party-name-input:focus{ border-bottom:1px dashed var(--cyan-dim); outline:none; }
+.slot-btn{
+  font-weight:600; font-size:15.5px; color:var(--ink); background:var(--bg-panel); border:1px solid var(--line);
+  padding:8px 9px; width:100%; margin-bottom:7px; text-align:left; cursor:pointer;
+  display:flex; justify-content:space-between; align-items:center; gap:8px;
+}
+.slot-btn:hover{ border-color:var(--line-strong); }
+.slot-btn.readonly{ cursor:default; }
+.slot-btn.readonly:hover{ border-color:var(--line); }
+.slot-btn-label{ flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:7px; overflow:hidden; }
+.slot-label-text{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.slot-btn .job-icon{ width:19px; height:19px; filter:drop-shadow(0 0 4px currentColor); }
+.dup-slot{ border-color:var(--magenta) !important; }
+/* assignment popover */
+.assign-popover{ position:fixed; inset:0; background:rgba(4,6,10,.6); z-index:60; display:flex; align-items:center; justify-content:center; }
+.assign-popover.hidden{ display:none; }
+.assign-card{ width:300px; max-height:400px; display:flex; flex-direction:column; background:var(--bg-elevated); border:1px solid var(--line-strong); box-shadow:0 10px 30px rgba(0,0,0,.55); }
+.assign-header{ padding:10px; border-bottom:1px solid var(--line-strong); display:flex; flex-direction:column; gap:8px; }
+.assign-options{ overflow-y:auto; flex:1 1 auto; }
+.assign-option{ display:flex; justify-content:space-between; align-items:center; gap:10px; padding:9px 12px; cursor:pointer; font-family:'Share Tech Mono',monospace; font-size:13.5px; border-bottom:1px solid var(--line); }
+.assign-option:hover{ background:rgba(45,226,255,.08); }
+.assign-option.is-selected{ background:rgba(45,226,255,.14); color:var(--cyan); }
+.assign-option-job{ color:var(--ink-soft); font-size:11.5px; display:inline-flex; align-items:center; gap:5px; }
+/* lineup list */
+.lineup-card{ border:1px solid var(--line); background:rgba(255,255,255,.015); padding:14px 16px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+.lineup-title{ font-weight:700; font-size:15px; }
+.lineup-title a{ color:var(--ink); text-decoration:none; cursor:pointer; }
+.lineup-title a:hover{ color:var(--cyan); }
+.lineup-meta{ font-size:12.5px; color:var(--ink-soft); font-family:'Share Tech Mono',monospace; margin-top:2px; }
+.tabs{ display:flex; gap:6px; margin:20px 0 4px; flex-wrap:wrap; }
+.tab-btn{ font-weight:700; font-size:13.5px; letter-spacing:.06em; text-transform:uppercase; background:var(--bg-panel-2); border:1px solid var(--line); padding:9px 18px; cursor:pointer; color:var(--ink-soft); }
+.tab-btn.active{ color:var(--bg); background:var(--cyan); border-color:var(--cyan); }
+/* overview dashboard */
+.stat-card-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; margin-bottom:26px; }
+.stat-card{ position:relative; border:1px solid var(--line-strong); background:var(--bg-panel-2); padding:14px 16px; overflow:hidden; }
+.stat-card::before{ content:""; position:absolute; top:0; left:0; width:3px; height:100%; background:var(--cyan); }
+.stat-card .stat-value{ font-family:'Orbitron',sans-serif; font-size:24px; font-weight:800; line-height:1.1; }
+.stat-card .stat-label{ font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-soft); margin-top:5px; font-weight:600; }
+.dash-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:18px; }
+.dash-panel{ border:1px solid var(--line); background:rgba(255,255,255,.015); padding:16px; }
+.dash-panel h3{ font-family:'Orbitron',sans-serif; font-size:12.5px; margin:0 0 12px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em; }
+.lb-row{ display:flex; align-items:center; gap:9px; padding:6px 0; border-bottom:1px solid var(--line); font-size:13.5px; }
+.lb-row:last-child{ border-bottom:none; }
+.lb-rank{ font-family:'Share Tech Mono',monospace; color:var(--ink-faint); font-size:11.5px; width:14px; flex:0 0 auto; }
+.lb-name{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.lb-value{ font-family:'Share Tech Mono',monospace; color:var(--cyan); flex:0 0 auto; }
+.recent-row{ display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line); cursor:pointer; }
+.recent-row:last-child{ border-bottom:none; }
+.recent-row:hover{ background:rgba(45,226,255,.05); }
+.recent-row-title{ font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.recent-row-meta{ font-size:11px; color:var(--ink-soft); font-family:'Share Tech Mono',monospace; margin-top:2px; }
+.outcome-tag{ font-weight:700; font-size:10px; letter-spacing:.05em; padding:2px 7px; border:1px solid; flex:0 0 auto; }
+.job-bar-row{ display:flex; align-items:center; gap:9px; padding:5px 0; font-size:12.5px; }
+.job-bar-track{ flex:1 1 auto; height:6px; background:var(--bg-panel); position:relative; min-width:30px; }
+.job-bar-fill{ position:absolute; top:0; left:0; bottom:0; }
+.job-bar-count{ font-family:'Share Tech Mono',monospace; color:var(--ink-soft); width:18px; text-align:right; flex:0 0 auto; }
+.attn-low{ color:var(--magenta); }
+.attn-mid{ color:var(--gold); }
+.attn-high{ color:var(--green); }
+/* session log */
+.session-card{ border:1px solid var(--line); background:rgba(255,255,255,.015); margin-bottom:10px; }
+.session-head{ display:flex; justify-content:space-between; align-items:center; padding:13px 16px; cursor:pointer; gap:10px; flex-wrap:wrap; }
+.session-head:hover{ background:rgba(45,226,255,.05); }
+.session-title{ font-weight:700; font-size:14.5px; }
+.session-meta{ font-size:12px; color:var(--ink-soft); font-family:'Share Tech Mono',monospace; margin-top:2px; }
+.session-body{ padding:0 16px 16px; display:none; border-top:1px solid var(--line); }
+.session-body.open{ display:block; }
+.role-badge{ font-weight:700; font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; padding:2px 8px; border:1px solid; }
+.role-badge.role-elite{ color:var(--cyan); border-color:var(--cyan); }
+.role-badge.role-sub{ color:var(--gold); border-color:var(--gold); }
+.mvp-seal{ display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; background:var(--gold); color:#1a1206; clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%); font-size:9px; margin-right:5px; }
+table{ width:100%; border-collapse:collapse; margin-top:12px; }
+thead th{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; text-align:left; color:var(--cyan-dim); border-bottom:1px solid var(--line-strong); padding:7px 6px; white-space:nowrap; }
+tbody td{ padding:7px 6px; border-bottom:1px solid var(--line); font-size:13px; vertical-align:middle; font-family:'Share Tech Mono',monospace; }
+tbody tr:hover{ background:rgba(45,226,255,.04); }
+td.num, th.num{ text-align:right; }
+.sortable{ cursor:pointer; user-select:none; }
+.sortable:hover{ color:var(--ink); }
+.sort-arrow{ font-size:9px; margin-left:2px; }
+.job-cell{ display:flex; align-items:center; gap:7px; }
+.job-cell select{ margin-bottom:0; }
+td input, td select{ padding:5px 6px; font-size:12.5px; margin-bottom:0; }
+.row-del{ background:none; border:none; color:var(--magenta); cursor:pointer; font-size:14px; padding:2px 6px; }
+@media (max-width:800px){
+  table.responsive thead{ display:none; }
+  table.responsive, table.responsive tbody, table.responsive tr, table.responsive td{ display:block; width:100%; }
+  table.responsive tr{ border:1px solid var(--line); margin-bottom:8px; padding:6px 8px; }
+  table.responsive td{ display:flex; justify-content:space-between; align-items:center; border-bottom:none; padding:5px 2px; gap:8px; }
+  table.responsive td::before{ content:attr(data-label); font-size:10px; text-transform:uppercase; color:var(--ink-soft); font-weight:700; flex:0 0 auto; }
+  table.responsive td.num{ text-align:right; }
+}
+
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <h1>// WAR LOG</h1>
+      <div class="sub" id="masthead-sub">Officer Dashboard</div>
+    </div>
+    <button class="btn ghost small hidden" id="signout-btn">Sign Out</button>
+  </header>
+
+  <!-- ============ LOGIN ============ -->
+  <div id="login-section" class="hud-panel hidden" style="max-width:420px;">
+    <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+    <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+    <h2 class="section-title">Sign In</h2>
+    <p class="section-hint">Officer sign-in.</p>
+    <div class="field-row">
+      <div>
+        <label for="login-username">Username</label>
+        <input type="text" id="login-username" placeholder="Username" autocomplete="username">
+      </div>
+      <div>
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password">
+      </div>
+    </div>
+    <button class="btn gold" id="login-btn">Sign In</button>
+    <div class="status-line" id="login-status"></div>
+  </div>
+
+  <!-- ============ APP (signed in) ============ -->
+  <div id="app-section" class="hidden">
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="overview">Overview</button>
+      <button class="tab-btn" data-tab="new">New Record</button>
+      <button class="tab-btn" data-tab="log">Session Log</button>
+      <button class="tab-btn" data-tab="fullroster">Full Roster</button>
+      <button class="tab-btn" data-tab="attendance">Attendance</button>
+      <button class="tab-btn" data-tab="parties">Party List</button>
+    </nav>
+
+    <div id="overview-tab" class="hud-panel">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <div id="overview-content"></div>
+    </div>
+
+    <div id="new-tab" class="hud-panel hidden">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <div id="new-content"></div>
+    </div>
+
+    <div id="log-tab" class="hud-panel hidden">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <div id="log-content"></div>
+    </div>
+
+    <div id="fullroster-tab" class="hud-panel hidden">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <div id="fullroster-content"></div>
+    </div>
+
+    <div id="attendance-tab" class="hud-panel hidden">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <div id="attendance-content"></div>
+    </div>
+
+    <!-- Party lineups list -->
+    <div id="parties-tab" class="hud-panel hidden">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <h2 class="section-title">Party List</h2>
+      <p class="section-hint">Each lineup gets its own public, view-only link — send it to guildmates, they can look but not touch.</p>
+      <button class="btn gold" id="new-lineup-btn" style="margin-bottom:18px;">+ New Lineup</button>
+      <div id="lineups-list"></div>
+    </div>
+
+    <!-- Lineup editor -->
+    <div id="editor-tab" class="hud-panel hidden">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <div id="editor-content"></div>
+    </div>
+  </div>
+
+  <div class="status-line" id="global-status" style="margin-top:16px;"></div>
+</div>
+
+<div class="assign-popover hidden" id="assign-popover">
+  <div class="assign-card">
+    <div class="assign-header">
+      <input type="text" id="assign-search" placeholder="Search name…">
+      <select id="assign-job-filter"><option value="">All Jobs</option></select>
+    </div>
+    <div class="assign-options" id="assign-options"></div>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   CONFIG — fill these in from Supabase → Project Settings → API
+   ========================================================= */
+const SUPABASE_URL = 'https://ydftjgrxhrbjmzzwstnr.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_1Uy0YLjaqqSgk52hS3Lm4Q_0zaxPv4x';
+
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* ========================= Job data ========================= */
+const JOB_OPTIONS = ['High Priest','High Wizard','Paladin','Lord Knight','Mastersmith','Summoner','Sniper','Assasin Cross','Stalker','Biochemist','Rebellion','Gypsy','Minstrel','Professor','Asura'];
+const JOB_ICONS = {
+  'High Priest':'<path d="M10 2h4v7h7v4h-7v9h-4v-9H3V9h7V2z"/>',
+  'High Wizard':'<circle cx="12" cy="5" r="3"/><path d="M10.8 8.5h2.4v13.5h-2.4z"/><path d="M19 2.5l0.9 2.2 2.2 0.9-2.2 0.9-0.9 2.2-0.9-2.2-2.2-0.9 2.2-0.9z"/>',
+  Paladin:'<path fill-rule="evenodd" clip-rule="evenodd" d="M12 2l8 3.2v5.6c0 5.7-3.4 9.4-8 11.2-4.6-1.8-8-5.5-8-11.2V5.2L12 2zm-1 5.5h2v3.7h3.7v2H13v3.8h-2v-3.8H7.3v-2H11V7.5z"/>',
+  'Lord Knight':'<path d="M12 1l3 12H9z"/><rect x="4.5" y="13.3" width="15" height="2.2" rx="0.4"/><rect x="10.4" y="15.5" width="3.2" height="4.3" rx="0.4"/><circle cx="12" cy="21" r="1.9"/>',
+  Mastersmith:'<rect x="5.5" y="2" width="13" height="7.2" rx="1.4"/><rect x="10.4" y="9.2" width="3.2" height="12.8" rx="1"/>',
+  Summoner:'<circle cx="8.3" cy="6.8" r="2.1"/><circle cx="15.7" cy="6.8" r="2.1"/><circle cx="4.4" cy="11.6" r="1.9"/><circle cx="19.6" cy="11.6" r="1.9"/><path d="M12 12c-3.9 0-6.5 2.6-6.5 5.9 0 3.4 3 5.6 6.5 5.6s6.5-2.2 6.5-5.6c0-3.3-2.6-5.9-6.5-5.9z"/>',
+  Sniper:'<path d="M4 2c6.8 3.1 6.8 16.9 0 20 8.7-2 10.8-9.3 10.8-10S12.7 4 4 2z"/><rect x="8.5" y="11.2" width="11.5" height="1.7"/><path d="M20 8.8l4 3.2-4 3.2z"/><path d="M8.5 9.4l3 2.6-3 2.6z"/>',
+  'Assasin Cross':'<path d="M12 2l2.6 7.2L12 11l-2.6-1.8z"/><rect x="7.3" y="11" width="9.4" height="1.7" rx="0.4"/><rect x="10.5" y="12.7" width="3" height="4.2" rx="0.4"/><circle cx="12" cy="18.3" r="1.6"/>',
+  Stalker:'<path d="M2 1.5c4 2.5 5.5 7 5.5 10.5S6 19.5 2 22c6-1 9-5.5 9-10.5S8 3.5 2 1.5z"/><rect x="9" y="10.3" width="14" height="3.4" rx="0.8"/>',
+  Biochemist:'<path d="M9.5 2h5v1.8h-1.1v5.5l5.6 9.3c1.3 2.1-.3 4.9-2.9 4.9H7.9c-2.6 0-4.2-2.8-2.9-4.9l5.6-9.3V3.8H9.5V2z"/>',
+  Rebellion:'<rect x="3" y="10" width="17" height="3.4" rx="0.8"/><rect x="20" y="10.8" width="2.6" height="1.8" rx="0.3"/><path d="M5 13.4h4.6l-1 7.6h-3.1z"/>',
+  Gypsy:'<circle cx="8.2" cy="16" r="6.3"/><rect x="12.7" y="2.3" width="2.3" height="15.5" rx="1" transform="rotate(20 13.8 10)"/><circle cx="17.6" cy="4" r="2"/>',
+  Minstrel:'<circle cx="6.5" cy="18.3" r="2.4"/><circle cx="16.2" cy="16.1" r="2.4"/><path d="M8.7 18.3V4.7L18.4 2.5v11.3h-1.9V5.9l-7.8 1.8v10.6z"/>',
+  Professor:'<path d="M12 6.3C9.8 4.9 6.9 4.4 4 5.4v13.1c2.9-1 5.8-.5 8 .9 2.2-1.4 5.1-1.9 8-.9V5.4c-2.9-1-5.8-.5-8 .9z"/>',
+  Asura:'<rect x="5" y="9" width="14" height="11" rx="3"/><circle cx="8" cy="8.5" r="2"/><circle cx="12" cy="7.8" r="2.1"/><circle cx="16" cy="8.5" r="2"/><path d="M3.5 12a2.3 2.3 0 012.3-2.3h1.4v7.6H5.8A2.3 2.3 0 013.5 15V12z"/>'
+};
+const JOB_COLORS = { 'High Priest':'#ffd24d','High Wizard':'#a374ff',Paladin:'#4db8ff','Lord Knight':'#ff4444',Mastersmith:'#ff9838',Summoner:'#4dffa6',Sniper:'#a8e63d','Assasin Cross':'#e8305f',Stalker:'#c34dff',Biochemist:'#3dffc4',Rebellion:'#ff6b3d',Gypsy:'#ff5eb0',Minstrel:'#3ddbe6',Professor:'#5c7fff',Asura:'#ffb83d' };
+function jobIconSvg(job){
+  const inner = JOB_ICONS[job];
+  if(!inner) return '';
+  return `<svg class="job-icon" style="color:${JOB_COLORS[job]||'#7c8998'}" viewBox="0 0 24 24" fill="currentColor" stroke="none">${inner}</svg>`;
+}
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ========================= State ========================= */
+let guildId = null;
+let roster = [];
+let lineups = [];
+let sessions = [];
+let currentLineup = null;
+let picker = null; // {ti,pi,si}
+let currentTab = 'overview';
+let expandedSessionId = null;
+let fullRosterSort = { key:'name', dir:'asc' };
+let attendanceSort = { key:'attendance', dir:'desc' };
+
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+let draftEntries = [];
+let draftEventName = 'WoE';
+let draftDate = todayStr();
+let draftOpposingGuild = '';
+let draftRole = '';
+let draftOurScore = '';
+let draftOpponentScore = '';
+
+const $ = (id) => document.getElementById(id);
+const TAB_IDS = ['overview','new','log','fullroster','attendance','parties'];
+
+/* ========================= Auth =========================
+   Simple on-page check — NOT a real login system. The username/password
+   below are compared right here in the browser, and whoever's viewing
+   this file's source can see them (and, since the database no longer
+   requires a real Supabase session to write data, could save changes
+   directly even without this box). This trades real security for
+   simplicity, on purpose — see README for the fuller explanation. */
+const OFFICER_USERNAME = 'gucci';
+const OFFICER_PASSWORD = 'Godisgood0723!';
+const AUTH_FLAG_KEY = 'gwl_officer_authed';
+
+function showApp(){
+  $('login-section').classList.add('hidden');
+  $('app-section').classList.remove('hidden');
+  $('signout-btn').classList.remove('hidden');
+  boot();
+}
+function showLogin(){
+  $('login-section').classList.remove('hidden');
+  $('app-section').classList.add('hidden');
+  $('signout-btn').classList.add('hidden');
+}
+$('login-btn').addEventListener('click', () => {
+  const username = $('login-username').value.trim();
+  const password = $('login-password').value;
+  if(username === OFFICER_USERNAME && password === OFFICER_PASSWORD){
+    localStorage.setItem(AUTH_FLAG_KEY, '1');
+    $('login-status').textContent = '';
+    showApp();
+  } else {
+    $('login-status').className = 'status-line error';
+    $('login-status').textContent = 'Wrong username or password.';
+  }
+});
+$('login-password').addEventListener('keydown', (e)=>{ if(e.key==='Enter') $('login-btn').click(); });
+$('signout-btn').addEventListener('click', () => {
+  localStorage.removeItem(AUTH_FLAG_KEY);
+  showLogin();
+});
+
+/* ========================= Boot ========================= */
+async function boot(){
+  const { data: guild } = await sb.from('guild_settings').select('id,name').limit(1).single();
+  if(!guild){ setStatus('No guild_settings row found — did you run schema.sql?', 'error'); return; }
+  guildId = guild.id;
+  $('masthead-sub').textContent = guild.name + ' — Officer Dashboard';
+  await Promise.all([loadRoster(), loadLineups(), loadSessions()]);
+  renderStatStrip();
+  switchTab('overview');
+}
+function setStatus(msg, cls){
+  const el = $('global-status');
+  el.className = 'status-line' + (cls ? ' '+cls : '');
+  el.textContent = msg;
+  if(msg) setTimeout(()=>{ if(el.textContent===msg){ el.textContent=''; el.className='status-line'; } }, 3000);
+}
+function populateJobSelect(sel, current){
+  sel.innerHTML = '<option value="">— Select —</option>' + JOB_OPTIONS.map(j=>`<option value="${j}" ${j===current?'selected':''}>${j}</option>`).join('');
+}
+function renderStatStrip(){
+  const el = $('stat-strip');
+  if(!el) return;
+  const last = sessions.length ? [...sessions].sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0] : null;
+  el.textContent = `${sessions.length} sessions · ${roster.length} guildmates` + (last ? ` · last: ${last.date}` : '');
+}
+
+/* ========================= Tabs ========================= */
+function switchTab(tab){
+  currentTab = tab;
+  TAB_IDS.forEach(t=>$(t+'-tab').classList.toggle('hidden', t!==tab));
+  $('editor-tab').classList.add('hidden');
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  if(tab==='overview') renderOverviewTab();
+  else if(tab==='new') renderNewTab();
+  else if(tab==='log') renderLogTab();
+  else if(tab==='fullroster') renderFullRosterTab();
+  else if(tab==='attendance') renderAttendanceTab();
+  else if(tab==='parties') renderLineupsList();
+}
+document.querySelectorAll('.tab-btn').forEach(btn=>btn.addEventListener('click', ()=>switchTab(btn.dataset.tab)));
+
+/* ========================= Data loading ========================= */
+async function loadRoster(){
+  const { data } = await sb.from('roster_members').select('id,mmid,name,job').eq('guild_id', guildId).order('name');
+  roster = data || [];
+}
+async function loadLineups(){
+  const { data } = await sb.from('party_lineups').select('*').eq('guild_id', guildId).order('date', { ascending:false });
+  lineups = data || [];
+}
+async function loadSessions(){
+  const { data } = await sb.from('sessions').select('*, session_entries(*)').eq('guild_id', guildId).order('date', { ascending:false });
+  sessions = (data||[]).map(s=>({ ...s, entries: s.session_entries || [] }));
+}
+
+/* ========================= Compute helpers ========================= */
+function computeSessionRecord(){
+  let wins=0, losses=0, ties=0, scored=0;
+  sessions.forEach(s=>{
+    const hasOur = s.our_score!==null && s.our_score!==undefined;
+    const hasOpp = s.opponent_score!==null && s.opponent_score!==undefined;
+    if(hasOur || hasOpp){
+      scored++;
+      const diff = Number(s.our_score||0) - Number(s.opponent_score||0);
+      if(diff>0) wins++; else if(diff<0) losses++; else ties++;
+    }
+  });
+  return { wins, losses, ties, scored };
+}
+function sessionOutcome(s){
+  const hasOur = s.our_score!==null && s.our_score!==undefined;
+  const hasOpp = s.opponent_score!==null && s.opponent_score!==undefined;
+  if(!hasOur && !hasOpp) return null;
+  const diff = Number(s.our_score||0) - Number(s.opponent_score||0);
+  return diff>0 ? 'WIN' : (diff<0 ? 'LOSS' : 'TIE');
+}
+function computeMvpCounts(){
+  const counts = {};
+  sessions.forEach(s=>(s.entries||[]).forEach(e=>{
+    if(e.rank && String(e.rank).toUpperCase()==='MVP') counts[e.name] = (counts[e.name]||0)+1;
+  }));
+  return counts;
+}
+function blankMember(name){ return { name, mmid:'', job:'', sessions:0, tablets:0, monsters:0, kills:0, assists:0, deaths:0, scoreSum:0, best:0 }; }
+function computeRosterStats(){
+  const totalSessions = sessions.length;
+  const map = {};
+  roster.forEach(m=>{ map[m.name]=blankMember(m.name); map[m.name].mmid=m.mmid||''; map[m.name].job=m.job||''; });
+  sessions.forEach(s=>(s.entries||[]).forEach(r=>{
+    if(!map[r.name]) map[r.name]=blankMember(r.name);
+    const m=map[r.name];
+    m.sessions++; m.tablets+=r.tablets; m.monsters+=r.monsters; m.kills+=r.kills; m.assists+=r.assists; m.deaths+=r.deaths;
+    m.scoreSum+=r.score; if(r.score>m.best) m.best=r.score;
+  }));
+  return Object.values(map).map(m=>({ ...m, attendance: totalSessions?(m.sessions/totalSessions*100):0, avgScore: m.sessions?(m.scoreSum/m.sessions):0 }));
+}
+
+/* ========================= Overview ========================= */
+function renderOverviewTab(){
+  if(sessions.length===0 && roster.length===0){
+    $('overview-content').innerHTML = '<h2 class="section-title">Overview</h2><p class="section-hint">Guild performance at a glance.</p><div class="empty-state">Nothing recorded yet. Add your roster in Full Roster or record a session in New Record to get started.</div>';
+    return;
+  }
+  const record = computeSessionRecord();
+  const winRate = record.scored ? Math.round(record.wins/record.scored*100) : null;
+  const rosterStats = computeRosterStats();
+  const mvpCounts = computeMvpCounts();
+  const topAvg = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
+  const topMvp = Object.entries(mvpCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const topAttendance = sessions.length ? [...rosterStats].sort((a,b)=>b.attendance-a.attendance).slice(0,5) : [];
+  const jobCounts = {};
+  roster.forEach(m=>{ if(m.job) jobCounts[m.job]=(jobCounts[m.job]||0)+1; });
+  const jobList = Object.entries(jobCounts).sort((a,b)=>b[1]-a[1]);
+  const maxJobCount = jobList.length ? jobList[0][1] : 1;
+  const recentSessions = [...sessions].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,5);
+
+  $('overview-content').innerHTML = `
+    <h2 class="section-title">Overview</h2>
+    <p class="section-hint">Guild performance at a glance — record, top performers, attendance, and class balance.</p>
+    <div class="stat-card-grid">
+      <div class="stat-card"><div class="stat-value">${sessions.length}</div><div class="stat-label">Sessions Recorded</div></div>
+      <div class="stat-card"><div class="stat-value">${roster.length}</div><div class="stat-label">Guildmates</div></div>
+      <div class="stat-card"><div class="stat-value">${record.scored ? `${record.wins}-${record.losses}${record.ties?'-'+record.ties:''}` : '—'}</div><div class="stat-label">Win – Loss${record.ties?' – Tie':''}</div></div>
+      <div class="stat-card"><div class="stat-value">${winRate!==null ? winRate+'%' : '—'}</div><div class="stat-label">Win Rate</div></div>
+    </div>
+    <div class="dash-grid">
+      <div class="dash-panel">
+        <h3>Recent Sessions</h3>
+        ${recentSessions.length ? recentSessions.map(s=>{
+          const outcome = sessionOutcome(s);
+          const cls = outcome==='WIN'?'attn-high':(outcome==='LOSS'?'attn-low':'attn-mid');
+          return `<div class="recent-row" data-jump-session="${s.id}">
+            <div>
+              <div class="recent-row-title">${escapeHtml(s.event_name)}${s.opposing_guild?' vs '+escapeHtml(s.opposing_guild):''}</div>
+              <div class="recent-row-meta">${s.date||''}${s.role?' · '+escapeHtml(s.role):''}</div>
+            </div>
+            ${outcome?`<span class="outcome-tag ${cls}" style="border-color:currentColor;">${outcome}</span>`:''}
+          </div>`;
+        }).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>'}
+      </div>
+      <div class="dash-panel">
+        <h3>Top Average Score</h3>
+        ${topAvg.length ? topAvg.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.avgScore.toFixed(0)}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No scored sessions yet.</div>'}
+      </div>
+      <div class="dash-panel">
+        <h3>Most MVPs</h3>
+        ${topMvp.length ? topMvp.map(([name,count],i)=>{
+          const job=(roster.find(m=>m.name===name)||{}).job||'';
+          return `<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(job)}<span class="lb-name">${escapeHtml(name)}</span><span class="lb-value">${count}</span></div>`;
+        }).join('') : '<div class="empty-state" style="padding:14px 4px;">No MVPs recorded yet.</div>'}
+      </div>
+      <div class="dash-panel">
+        <h3>Best Attendance</h3>
+        ${topAttendance.length ? topAttendance.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.attendance.toFixed(0)}%</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>'}
+      </div>
+      <div class="dash-panel">
+        <h3>Class Balance</h3>
+        ${jobList.length ? jobList.map(([job,count])=>`
+          <div class="job-bar-row">
+            ${jobIconSvg(job)}
+            <span style="width:86px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(job)}</span>
+            <div class="job-bar-track"><div class="job-bar-fill" style="width:${(count/maxJobCount*100).toFixed(0)}%; background:${JOB_COLORS[job]||'var(--cyan-dim)'};"></div></div>
+            <span class="job-bar-count">${count}</span>
+          </div>
+        `).join('') : '<div class="empty-state" style="padding:14px 4px;">No jobs assigned yet.</div>'}
+      </div>
+    </div>
+  `;
+  document.querySelectorAll('[data-jump-session]').forEach(row=>row.addEventListener('click', ()=>{
+    expandedSessionId = row.dataset.jumpSession;
+    switchTab('log');
+  }));
+}
+
+/* ========================= New Record ========================= */
+function renderNewTab(){
+  $('new-content').innerHTML = `
+    <h2 class="section-title">New Record</h2>
+    <p class="section-hint">Scan a scoreboard screenshot — a free AI model reads player names, tablets, K/A/D and score for you. Review and edit before saving, or add rows by hand.</p>
+    <div class="field-row">
+      <div><label>Event</label><input type="text" id="nf-event" value="${escapeHtml(draftEventName)}"></div>
+      <div><label>Date</label><input type="date" id="nf-date" value="${draftDate}"></div>
+    </div>
+    <div class="field-row">
+      <div><label>Opposing Guild</label><input type="text" id="nf-opp" placeholder="Enemy guild name" value="${escapeHtml(draftOpposingGuild)}"></div>
+      <div><label>Role</label><select id="nf-role"><option value="">— Select —</option><option value="Elite" ${draftRole==='Elite'?'selected':''}>Elite</option><option value="Sub" ${draftRole==='Sub'?'selected':''}>Sub</option></select></div>
+    </div>
+    <div class="field-row">
+      <div><label>Our Guild Score</label><input type="number" id="nf-our-score" placeholder="0" value="${escapeHtml(draftOurScore)}"></div>
+      <div><label>Opposing Guild Score</label><input type="number" id="nf-opp-score" placeholder="0" value="${escapeHtml(draftOpponentScore)}"></div>
+    </div>
+    <div id="nf-dropzone" style="text-align:center; padding:26px 16px; cursor:pointer; border:1px dashed var(--line-strong); margin-bottom:6px;">
+      <div style="font-weight:700;">Drop a screenshot, click to browse, or paste (Ctrl+V)</div>
+      <div style="font-size:12px;color:var(--ink-soft);margin-top:4px;">PNG or JPG — scan more than one into the same session</div>
+      <input type="file" id="nf-file-input" accept="image/*" multiple style="display:none;">
+    </div>
+    <div class="status-line" id="nf-scan-status"></div>
+    <div id="nf-draft-table"></div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
+      <button class="btn ghost small" id="nf-add-row">+ Add row manually</button>
+      <div style="flex:1"></div>
+      <button class="btn ghost" id="nf-discard">Discard</button>
+      <button class="btn gold" id="nf-save">Save session</button>
+    </div>
+  `;
+  renderDraftTable();
+
+  $('nf-event').addEventListener('input', e=>draftEventName=e.target.value);
+  $('nf-date').addEventListener('change', e=>draftDate=e.target.value);
+  $('nf-opp').addEventListener('input', e=>draftOpposingGuild=e.target.value);
+  $('nf-role').addEventListener('change', e=>draftRole=e.target.value);
+  $('nf-our-score').addEventListener('input', e=>draftOurScore=e.target.value);
+  $('nf-opp-score').addEventListener('input', e=>draftOpponentScore=e.target.value);
+  $('nf-dropzone').addEventListener('click', ()=>$('nf-file-input').click());
+  $('nf-file-input').addEventListener('change', e=>handleScanFiles(e.target.files));
+  $('nf-dropzone').addEventListener('dragover', e=>{ e.preventDefault(); $('nf-dropzone').style.borderColor='var(--cyan)'; });
+  $('nf-dropzone').addEventListener('dragleave', ()=>{ $('nf-dropzone').style.borderColor='var(--line-strong)'; });
+  $('nf-dropzone').addEventListener('drop', e=>{ e.preventDefault(); $('nf-dropzone').style.borderColor='var(--line-strong)'; handleScanFiles(e.dataTransfer.files); });
+  $('nf-add-row').addEventListener('click', ()=>{ draftEntries.push({rank:'',name:'',tablets:0,monsters:0,kills:0,assists:0,deaths:0,score:0}); renderDraftTable(); });
+  $('nf-discard').addEventListener('click', ()=>{ if(draftEntries.length && !confirm('Discard the current draft?')) return; draftEntries=[]; renderDraftTable(); });
+  $('nf-save').addEventListener('click', saveSession);
+}
+document.addEventListener('paste', e=>{
+  if(currentTab!=='new') return;
+  const items = e.clipboardData && e.clipboardData.items;
+  if(!items) return;
+  const files=[];
+  for(const it of items){ if(it.type && it.type.startsWith('image/')) files.push(it.getAsFile()); }
+  if(files.length) handleScanFiles(files);
+});
+
+function renderDraftTable(){
+  const wrap = $('nf-draft-table');
+  if(!wrap) return;
+  if(draftEntries.length===0){ wrap.innerHTML=''; return; }
+  wrap.innerHTML = `
+    <table class="responsive">
+      <thead><tr><th>Rank</th><th>Name</th><th class="num">Tablets</th><th class="num">Monsters</th><th class="num">Kills</th><th class="num">Assists</th><th class="num">Deaths</th><th class="num">Score</th><th></th></tr></thead>
+      <tbody>${draftEntries.map((r,i)=>`
+        <tr>
+          <td data-label="Rank"><input type="text" style="width:56px;" data-df="rank" data-idx="${i}" value="${escapeHtml(r.rank||'')}"></td>
+          <td data-label="Name"><input type="text" data-df="name" data-idx="${i}" value="${escapeHtml(r.name)}"></td>
+          <td class="num" data-label="Tablets"><input type="number" data-df="tablets" data-idx="${i}" value="${r.tablets}"></td>
+          <td class="num" data-label="Monsters"><input type="number" data-df="monsters" data-idx="${i}" value="${r.monsters}"></td>
+          <td class="num" data-label="Kills"><input type="number" data-df="kills" data-idx="${i}" value="${r.kills}"></td>
+          <td class="num" data-label="Assists"><input type="number" data-df="assists" data-idx="${i}" value="${r.assists}"></td>
+          <td class="num" data-label="Deaths"><input type="number" data-df="deaths" data-idx="${i}" value="${r.deaths}"></td>
+          <td class="num" data-label="Score"><input type="number" data-df="score" data-idx="${i}" value="${r.score}"></td>
+          <td data-label=""><button class="row-del" data-df-del="${i}">✕</button></td>
+        </tr>
+      `).join('')}</tbody>
+    </table>
+  `;
+  wrap.querySelectorAll('[data-df]').forEach(inp=>inp.addEventListener('input', e=>{
+    const idx=+inp.dataset.idx, field=inp.dataset.df;
+    draftEntries[idx][field] = (field==='rank'||field==='name') ? e.target.value : (Number(e.target.value)||0);
+  }));
+  wrap.querySelectorAll('[data-df-del]').forEach(btn=>btn.addEventListener('click', ()=>{
+    draftEntries.splice(+btn.dataset.dfDel,1); renderDraftTable();
+  }));
+}
+
+function fileToBase64(file){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader();
+    r.onload=()=>resolve(r.result.split(',')[1]);
+    r.onerror=()=>reject(new Error('Could not read file'));
+    r.readAsDataURL(file);
+  });
+}
+async function handleScanFiles(fileList){
+  const files = Array.from(fileList||[]).filter(f=>f.type && f.type.startsWith('image/'));
+  if(files.length===0) return;
+  const statusEl = $('nf-scan-status');
+  for(const file of files){
+    statusEl.className='status-line'; statusEl.textContent='Reading '+file.name+'…';
+    try{
+      const base64 = await fileToBase64(file);
+      const res = await fetch('/api/scan', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ imageBase64: base64, mediaType: file.type })
+      });
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error || 'Scan failed');
+      if(!data.rows || data.rows.length===0) throw new Error('No rows found');
+      draftEntries = draftEntries.concat(data.rows);
+      statusEl.className='status-line ok';
+      statusEl.textContent = 'Added '+data.rows.length+' row(s) from '+file.name+'.';
+    }catch(err){
+      statusEl.className='status-line error';
+      statusEl.textContent = "Couldn't read "+file.name+" — "+(err.message||'try again or add rows manually.');
+    }
+  }
+  renderDraftTable();
+}
+
+async function saveSession(){
+  draftEventName = ($('nf-event').value||'WoE').trim() || 'WoE';
+  draftDate = $('nf-date').value || draftDate;
+  draftOpposingGuild = ($('nf-opp').value||'').trim();
+  draftRole = $('nf-role').value || '';
+  draftOurScore = $('nf-our-score').value || '';
+  draftOpponentScore = $('nf-opp-score').value || '';
+
+  const cleaned = draftEntries.filter(r=>r.name && r.name.trim().length>0);
+  if(cleaned.length===0){ setStatus('Add at least one player row first', 'error'); return; }
+
+  const { data: session, error } = await sb.from('sessions').insert({
+    guild_id: guildId, event_name: draftEventName, date: draftDate,
+    opposing_guild: draftOpposingGuild || null, role: draftRole || null,
+    our_score: draftOurScore===''?null:Number(draftOurScore),
+    opponent_score: draftOpponentScore===''?null:Number(draftOpponentScore),
+  }).select('id').single();
+  if(error){ setStatus("Couldn't save session.", 'error'); return; }
+
+  const entryRows = cleaned.map(r=>({ session_id: session.id, rank:r.rank||'', name:r.name, tablets:r.tablets||0, monsters:r.monsters||0, kills:r.kills||0, assists:r.assists||0, deaths:r.deaths||0, score:r.score||0 }));
+  await sb.from('session_entries').insert(entryRows);
+
+  draftEntries=[]; draftEventName='WoE'; draftOpposingGuild=''; draftRole=''; draftOurScore=''; draftOpponentScore='';
+  await loadSessions();
+  renderStatStrip();
+  setStatus('Session saved.', 'ok');
+  expandedSessionId = session.id;
+  switchTab('log');
+}
+
+/* ========================= Session Log ========================= */
+function renderLogTab(){
+  const sorted = [...sessions].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  $('log-content').innerHTML = `
+    <h2 class="section-title">Session Log</h2>
+    ${sorted.length===0 ? '<p class="section-hint">No sessions recorded yet.</p><div class="empty-state">Scan or add your first record in New Record.</div>' : `
+      <p class="section-hint">${sorted.length} session${sorted.length===1?'':'s'} recorded. Tap one to view the full roster for that fight.</p>
+      <div>
+        ${sorted.map(s=>{
+          const outcome = sessionOutcome(s);
+          const cls = outcome==='WIN'?'attn-high':(outcome==='LOSS'?'attn-low':'attn-mid');
+          return `<div class="session-card">
+            <div class="session-head" data-toggle-session="${s.id}">
+              <div>
+                <div class="session-title">${escapeHtml(s.event_name)} — ${s.date||''}</div>
+                <div class="session-meta" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                  ${s.role?`<span class="role-badge role-${s.role.toLowerCase()}">${escapeHtml(s.role)}</span>`:''}
+                  ${s.opposing_guild?`<span>vs ${escapeHtml(s.opposing_guild)}</span>`:''}
+                  ${outcome?`<span class="${cls}">${escapeHtml(String(s.our_score||0))} – ${escapeHtml(String(s.opponent_score||0))}</span>`:''}
+                </div>
+              </div>
+              <div class="session-meta">${(s.entries||[]).length} player${(s.entries||[]).length===1?'':'s'}</div>
+            </div>
+            <div class="session-body ${expandedSessionId===s.id?'open':''}" id="sbody-${s.id}"></div>
+          </div>`;
+        }).join('')}
+      </div>
+    `}
+  `;
+  document.querySelectorAll('[data-toggle-session]').forEach(el=>el.addEventListener('click', ()=>{
+    const id = el.dataset.toggleSession;
+    expandedSessionId = expandedSessionId===id ? null : id;
+    renderLogTab();
+  }));
+  if(expandedSessionId) renderSessionBody(expandedSessionId);
+}
+
+function renderSessionBody(id){
+  const body = $('sbody-'+id);
+  if(!body) return;
+  const s = sessions.find(x=>x.id===id);
+  if(!s){ body.innerHTML='<div class="status-line error">Not found.</div>'; return; }
+  const hasAnyRank = (s.entries||[]).some(r=>r.rank);
+  const rankSortValue = r=>{
+    if(r.rank){ if(String(r.rank).toUpperCase()==='MVP') return -1; const n=parseInt(r.rank,10); if(!isNaN(n)) return n; }
+    return 9999;
+  };
+  const rows = hasAnyRank ? [...s.entries].sort((a,b)=>rankSortValue(a)-rankSortValue(b)) : [...s.entries].sort((a,b)=>b.score-a.score);
+  const top = [...s.entries].sort((a,b)=>b.score-a.score)[0];
+  const isMvp = r=> r.rank ? String(r.rank).toUpperCase()==='MVP' : (top && r.name===top.name && r.score===top.score);
+
+  const presentSet = new Set((s.entries||[]).map(r=>r.name));
+  const absentees = roster.filter(m=>!presentSet.has(m.name));
+  const absentBlock = roster.length===0
+    ? '<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);font-size:12px;color:var(--ink-soft);">Add your roster in Full Roster to see who is absent.</div>'
+    : `<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);">
+        <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--magenta);margin-bottom:8px;">Absent (${absentees.length} of ${roster.length})</div>
+        ${absentees.length ? absentees.map(m=>`<span class="chip">${escapeHtml(m.name)}${m.job?' · '+escapeHtml(m.job):''}</span>`).join('') : '<div style="font-size:13px;color:var(--ink-soft);">Everyone showed up.</div>'}
+      </div>`;
+
+  body.innerHTML = `
+    <table class="responsive">
+      <thead><tr><th>Rank</th><th>Name</th><th class="num">Tablets</th><th class="num">Monsters</th><th class="num">Kills</th><th class="num">Assists</th><th class="num">Deaths</th><th class="num">Score</th></tr></thead>
+      <tbody>${rows.map(r=>`
+        <tr>
+          <td data-label="Rank">${isMvp(r)?'<span class="mvp-seal">&#9733;</span>MVP':escapeHtml(r.rank||'—')}</td>
+          <td data-label="Name">${escapeHtml(r.name)}</td>
+          <td class="num" data-label="Tablets">${r.tablets}</td>
+          <td class="num" data-label="Monsters">${r.monsters}</td>
+          <td class="num" data-label="Kills">${r.kills}</td>
+          <td class="num" data-label="Assists">${r.assists}</td>
+          <td class="num" data-label="Deaths">${r.deaths}</td>
+          <td class="num" data-label="Score">${r.score}</td>
+        </tr>
+      `).join('')}</tbody>
+    </table>
+    ${absentBlock}
+    <div style="display:flex; justify-content:flex-end; margin-top:12px;">
+      <button class="btn danger small" data-delete-session="${id}">Delete session</button>
+    </div>
+  `;
+  body.querySelector('[data-delete-session]').addEventListener('click', async ()=>{
+    if(!confirm("Delete this session? This can't be undone.")) return;
+    await sb.from('sessions').delete().eq('id', id);
+    expandedSessionId=null;
+    await loadSessions();
+    renderStatStrip();
+    renderLogTab();
+  });
+}
+
+/* ========================= Full Roster ========================= */
+function renderFullRosterTab(){
+  const sorted = [...roster].sort((a,b)=>{
+    const av=(a[fullRosterSort.key]||'').toString(), bv=(b[fullRosterSort.key]||'').toString();
+    return av.localeCompare(bv,undefined,{numeric:true}) * (fullRosterSort.dir==='asc'?1:-1);
+  });
+  const arrow = key => fullRosterSort.key===key ? (fullRosterSort.dir==='asc'?' \u25B2':' \u25BC') : '';
+  $('fullroster-content').innerHTML = `
+    <h2 class="section-title">Full Roster</h2>
+    <p class="section-hint">MMID, Name, and Job — members here are who you can assign into parties and who show up in Attendance.</p>
+    <div class="field-row" style="align-items:flex-end;">
+      <div><label>MMID</label><input type="text" id="fr-mmid" placeholder="MM004"></div>
+      <div style="flex:2;"><label>Name</label><input type="text" id="fr-name" placeholder="Player name"></div>
+      <div style="flex:2;"><label>Job</label><select id="fr-job"></select></div>
+      <div style="flex:0 0 auto;"><button class="btn small" id="fr-add-btn">Add</button></div>
+    </div>
+    <details style="margin:12px 0;"><summary style="cursor:pointer;color:var(--ink-soft);font-size:13px;">Paste a list instead</summary>
+      <div style="margin-top:10px;">
+        <textarea id="fr-bulk" rows="4" placeholder="MMID, Name, Job — one per line (tab or comma separated)" style="width:100%;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--ink);padding:8px;font-family:'Rajdhani',sans-serif;"></textarea>
+        <button class="btn gold small" id="fr-bulk-btn" style="margin-top:8px;">Add all</button>
+      </div>
+    </details>
+    <h3 style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin:16px 0 6px;">${roster.length} member${roster.length===1?'':'s'}</h3>
+    ${sorted.length ? `
+    <table class="responsive">
+      <thead><tr>
+        <th class="sortable" data-sort-roster="mmid">MMID${arrow('mmid')}</th>
+        <th class="sortable" data-sort-roster="name">Name${arrow('name')}</th>
+        <th class="sortable" data-sort-roster="job">Job${arrow('job')}</th>
+        <th></th>
+      </tr></thead>
+      <tbody>${sorted.map(m=>`
+        <tr>
+          <td data-label="MMID"><input type="text" data-fr-field="mmid" data-fr-id="${m.id}" value="${escapeHtml(m.mmid||'')}"></td>
+          <td data-label="Name"><input type="text" data-fr-field="name" data-fr-id="${m.id}" value="${escapeHtml(m.name)}"></td>
+          <td data-label="Job"><div class="job-cell">${jobIconSvg(m.job)}<select data-fr-field="job" data-fr-id="${m.id}"></select></div></td>
+          <td data-label=""><button class="row-del" data-fr-remove="${m.id}">✕</button></td>
+        </tr>
+      `).join('')}</tbody>
+    </table>` : '<div class="empty-state">No members added yet.</div>'}
+  `;
+  populateJobSelect($('fr-job'));
+  sorted.forEach(m=>{
+    const sel = document.querySelector(`select[data-fr-field="job"][data-fr-id="${m.id}"]`);
+    if(sel) populateJobSelect(sel, m.job);
+  });
+
+  $('fr-add-btn').addEventListener('click', async ()=>{
+    const mmid=$('fr-mmid').value.trim(), name=$('fr-name').value.trim(), job=$('fr-job').value;
+    if(!name) return;
+    const { error } = await sb.from('roster_members').insert({guild_id:guildId, mmid, name, job});
+    if(error){ setStatus("Couldn't add — name may already exist.", 'error'); return; }
+    $('fr-mmid').value=''; $('fr-name').value='';
+    await loadRoster(); renderStatStrip(); renderFullRosterTab();
+    setStatus('Member added.', 'ok');
+  });
+  $('fr-bulk-btn').addEventListener('click', async ()=>{
+    const raw = $('fr-bulk').value || '';
+    const lines = raw.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+    const rows = [];
+    lines.forEach(line=>{
+      const parts = (line.includes('\t')?line.split('\t'):line.split(',')).map(p=>p.trim());
+      if(parts[0] && parts[0].toLowerCase()==='mmid') return;
+      if(parts.length>=3) rows.push({guild_id:guildId, mmid:parts[0], name:parts[1], job:parts[2]});
+      else if(parts.length===2) rows.push({guild_id:guildId, mmid:'', name:parts[0], job:parts[1]});
+      else if(parts.length===1 && parts[0]) rows.push({guild_id:guildId, mmid:'', name:parts[0], job:''});
+    });
+    if(rows.length){
+      const { error } = await sb.from('roster_members').insert(rows);
+      if(error) setStatus("Some rows couldn't be added (duplicate names?).", 'error');
+      await loadRoster(); renderStatStrip(); renderFullRosterTab();
+      setStatus('Added members.', 'ok');
+    }
+  });
+  document.querySelectorAll('[data-fr-remove]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    await sb.from('roster_members').delete().eq('id', btn.dataset.frRemove);
+    await loadRoster(); renderStatStrip(); renderFullRosterTab();
+  }));
+  document.querySelectorAll('[data-fr-field]').forEach(el=>{
+    el.addEventListener('change', async ()=>{
+      const id = el.dataset.frId, field = el.dataset.frField;
+      await sb.from('roster_members').update({[field]: el.value}).eq('id', id);
+      const m = roster.find(x=>x.id===id);
+      if(m) m[field] = el.value;
+      if(field==='job'){
+        const cell = el.closest('.job-cell');
+        if(cell){ const oldIcon=cell.querySelector('.job-icon'); if(oldIcon) oldIcon.remove(); cell.insertAdjacentHTML('afterbegin', jobIconSvg(el.value)); }
+      }
+    });
+  });
+  document.querySelectorAll('[data-sort-roster]').forEach(th=>th.addEventListener('click', ()=>{
+    const key = th.dataset.sortRoster;
+    if(fullRosterSort.key===key) fullRosterSort.dir = fullRosterSort.dir==='asc'?'desc':'asc';
+    else fullRosterSort = {key, dir:'asc'};
+    renderFullRosterTab();
+  }));
+}
+
+/* ========================= Attendance ========================= */
+function renderAttendanceTab(){
+  const rosterStats = computeRosterStats();
+  const sorted = [...rosterStats].sort((a,b)=>{
+    const dir = attendanceSort.dir==='asc'?1:-1;
+    const av=a[attendanceSort.key], bv=b[attendanceSort.key];
+    if(typeof av==='string') return av.localeCompare(bv)*dir;
+    return (av-bv)*dir;
+  });
+  const cols = [
+    {key:'name',label:'Name'},{key:'job',label:'Job'},{key:'sessions',label:'Sessions',num:true},{key:'attendance',label:'Attend %',num:true},
+    {key:'avgScore',label:'Avg Score',num:true},{key:'best',label:'Best',num:true},
+    {key:'kills',label:'Kills',num:true},{key:'assists',label:'Assists',num:true},{key:'deaths',label:'Deaths',num:true},
+    {key:'tablets',label:'Tablets',num:true},{key:'monsters',label:'Monsters',num:true}
+  ];
+  $('attendance-content').innerHTML = `
+    <h2 class="section-title">Attendance</h2>
+    <p class="section-hint">Totals across every session, including roster members who haven't attended yet. Click a column to sort.</p>
+    ${sessions.length===0 && roster.length===0 ? '<div class="empty-state">No sessions or roster yet.</div>' : `
+    <table class="responsive">
+      <thead><tr>
+        ${cols.map(c=>`<th class="${c.num?'num ':''}sortable" data-sort-attn="${c.key}">${c.label}${attendanceSort.key===c.key?(attendanceSort.dir==='asc'?' \u25B2':' \u25BC'):''}</th>`).join('')}
+      </tr></thead>
+      <tbody>${sorted.map(m=>{
+        const cls = m.attendance>=75?'attn-high':(m.attendance>=40?'attn-mid':'attn-low');
+        return `<tr>
+          <td data-label="Name">${escapeHtml(m.name)}</td>
+          <td data-label="Job"><div class="job-cell">${jobIconSvg(m.job)}<span>${escapeHtml(m.job||'—')}</span></div></td>
+          <td class="num" data-label="Sessions">${m.sessions}</td>
+          <td class="num ${cls}" data-label="Attend %">${m.attendance.toFixed(0)}%</td>
+          <td class="num" data-label="Avg Score">${m.avgScore.toFixed(0)}</td>
+          <td class="num" data-label="Best">${m.best}</td>
+          <td class="num" data-label="Kills">${m.kills}</td>
+          <td class="num" data-label="Assists">${m.assists}</td>
+          <td class="num" data-label="Deaths">${m.deaths}</td>
+          <td class="num" data-label="Tablets">${m.tablets}</td>
+          <td class="num" data-label="Monsters">${m.monsters}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`}
+  `;
+  document.querySelectorAll('[data-sort-attn]').forEach(th=>th.addEventListener('click', ()=>{
+    const key = th.dataset.sortAttn;
+    if(attendanceSort.key===key) attendanceSort.dir = attendanceSort.dir==='asc'?'desc':'asc';
+    else attendanceSort = {key, dir: key==='name'?'asc':'desc'};
+    renderAttendanceTab();
+  }));
+}
+
+/* ========================= Party lineups list ========================= */
+function placedCount(teams){
+  return (teams||[]).reduce((s,t)=>s+t.parties.reduce((s2,p)=>s2+p.slots.filter(x=>x.name).length,0),0);
+}
+function renderLineupsList(){
+  $('lineups-list').innerHTML = lineups.length ? lineups.map(l=>`
+    <div class="lineup-card">
+      <div>
+        <div class="lineup-title"><a data-open-lineup="${l.id}">${escapeHtml(l.name)}</a> — ${l.date||''}</div>
+        <div class="lineup-meta">${[l.map_name, l.opposing_guild?('vs '+l.opposing_guild):null].filter(Boolean).join(' · ')}</div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <span class="lineup-meta">${placedCount(l.teams)} placed</span>
+        <button class="btn ghost small" data-copy-link="${l.share_slug}">Copy Share Link</button>
+        <button class="btn danger small" data-delete-lineup="${l.id}">Delete</button>
+      </div>
+    </div>
+  `).join('') : '<div class="empty-state">No lineups yet.</div>';
+
+  document.querySelectorAll('[data-open-lineup]').forEach(el=>el.addEventListener('click', ()=>openEditor(el.dataset.openLineup)));
+  document.querySelectorAll('[data-copy-link]').forEach(el=>el.addEventListener('click', ()=>{
+    const url = `${location.origin}${location.pathname.replace('index.html','')}view.html?slug=${el.dataset.copyLink}`;
+    navigator.clipboard.writeText(url);
+    setStatus('Share link copied.', 'ok');
+  }));
+  document.querySelectorAll('[data-delete-lineup]').forEach(el=>el.addEventListener('click', async ()=>{
+    if(!confirm("Delete this lineup? This can't be undone.")) return;
+    await sb.from('party_lineups').delete().eq('id', el.dataset.deleteLineup);
+    await loadLineups(); renderLineupsList();
+  }));
+}
+
+function defaultTeams(){
+  const emptySlot = ()=>({name:'',job:''});
+  const mkTeam = (name)=>({ name, parties: Array.from({length:8},(_,i)=>({name:`Party ${i+1}`, slots: Array.from({length:5}, emptySlot)})) });
+  return [mkTeam('Elite Team'), mkTeam('SUB Team')];
+}
+$('new-lineup-btn').addEventListener('click', async ()=>{
+  const { data, error } = await sb.from('party_lineups').insert({
+    guild_id: guildId, name:'New Lineup', date: todayStr(), teams: defaultTeams()
+  }).select('id').single();
+  if(error){ setStatus("Couldn't create lineup.", 'error'); return; }
+  await loadLineups();
+  openEditor(data.id);
+});
+
+/* ========================= Lineup editor ========================= */
+let saveTimer = null;
+function scheduleSave(){
+  clearTimeout(saveTimer);
+  setStatus('Saving…');
+  saveTimer = setTimeout(async ()=>{
+    const { id, guild_id, share_slug, created_at, updated_at, ...rest } = currentLineup;
+    await sb.from('party_lineups').update(rest).eq('id', id);
+    setStatus('Saved.', 'ok');
+    const idx = lineups.findIndex(l=>l.id===id);
+    if(idx>=0) lineups[idx] = { ...lineups[idx], ...rest };
+  }, 500);
+}
+function openEditor(id){
+  currentLineup = JSON.parse(JSON.stringify(lineups.find(l=>l.id===id)));
+  TAB_IDS.forEach(t=>$(t+'-tab').classList.add('hidden'));
+  $('editor-tab').classList.remove('hidden');
+  renderEditor();
+}
+function backToList(){
+  currentLineup = null;
+  switchTab('parties');
+}
+function countByName(){
+  const counts = {};
+  currentLineup.teams.forEach(t=>t.parties.forEach(p=>p.slots.forEach(s=>{ if(s.name) counts[s.name]=(counts[s.name]||0)+1; })));
+  return counts;
+}
+function renderEditor(){
+  const l = currentLineup;
+  const counts = countByName();
+  const assignedNames = new Set(Object.keys(counts));
+  const unassigned = roster.filter(m=>!assignedNames.has(m.name)).map(m=>m.name).sort();
+
+  $('editor-content').innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px;">
+      <div style="flex:1 1 320px;">
+        <button class="btn ghost small" id="back-btn" style="margin-bottom:14px;">&larr; All Lineups</button>
+        <div class="field-row">
+          <div style="flex:2 1 220px;"><label>Lineup Name</label><input type="text" id="f-name" value="${escapeHtml(l.name)}"></div>
+          <div style="flex:1 1 140px;"><label>Date</label><input type="date" id="f-date" value="${l.date||''}"></div>
+        </div>
+        <div class="field-row">
+          <div><label>Map Name</label><input type="text" id="f-map" placeholder="e.g. Prontera Castle" value="${escapeHtml(l.map_name||'')}"></div>
+          <div><label>Opposing Guild</label><input type="text" id="f-opp" placeholder="Enemy guild name" value="${escapeHtml(l.opposing_guild||'')}"></div>
+        </div>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn gold small" id="copy-share-btn">Copy Share Link</button>
+        <button class="btn danger small" id="delete-lineup-btn">Delete Lineup</button>
+      </div>
+    </div>
+    ${l.teams.map((team,ti)=>tplTeam(team,ti)).join('')}
+    <button class="btn gold small" id="add-team-btn" style="margin-bottom:20px;">+ Add Team</button>
+    <h3 class="section-title" style="font-size:14px;">Unassigned (${unassigned.length})</h3>
+    <div>${unassigned.length ? unassigned.map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('') : '<div style="font-size:13px;color:var(--ink-soft);">Everyone is placed.</div>'}</div>
+  `;
+
+  $('back-btn').addEventListener('click', backToList);
+  $('f-name').addEventListener('input', e=>{ currentLineup.name = e.target.value; scheduleSave(); });
+  $('f-date').addEventListener('change', e=>{ currentLineup.date = e.target.value; scheduleSave(); });
+  $('f-map').addEventListener('input', e=>{ currentLineup.map_name = e.target.value; scheduleSave(); });
+  $('f-opp').addEventListener('input', e=>{ currentLineup.opposing_guild = e.target.value; scheduleSave(); });
+  $('copy-share-btn').addEventListener('click', ()=>{
+    const url = `${location.origin}${location.pathname.replace('index.html','')}view.html?slug=${currentLineup.share_slug}`;
+    navigator.clipboard.writeText(url);
+    setStatus('Share link copied.', 'ok');
+  });
+  $('delete-lineup-btn').addEventListener('click', async ()=>{
+    if(!confirm("Delete this lineup? This can't be undone.")) return;
+    await sb.from('party_lineups').delete().eq('id', currentLineup.id);
+    await loadLineups();
+    backToList();
+  });
+  $('add-team-btn').addEventListener('click', ()=>{
+    currentLineup.teams.push({ name:'New Team', parties:[{name:'Party 1', slots:Array.from({length:5},()=>({name:'',job:''}))}] });
+    scheduleSave(); renderEditor();
+  });
+
+  document.querySelectorAll('[data-team-name]').forEach(inp=>inp.addEventListener('input', e=>{
+    currentLineup.teams[+inp.dataset.teamName].name = e.target.value; scheduleSave();
+  }));
+  document.querySelectorAll('[data-remove-team]').forEach(btn=>btn.addEventListener('click', ()=>{
+    currentLineup.teams.splice(+btn.dataset.removeTeam,1); scheduleSave(); renderEditor();
+  }));
+  document.querySelectorAll('[data-add-party]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const ti = +btn.dataset.addParty;
+    const parties = currentLineup.teams[ti].parties;
+    parties.push({ name:`Party ${parties.length+1}`, slots:Array.from({length:5},()=>({name:'',job:''})) });
+    scheduleSave(); renderEditor();
+  }));
+  document.querySelectorAll('[data-party-name]').forEach(inp=>inp.addEventListener('input', e=>{
+    const [ti,pi] = inp.dataset.partyName.split('-').map(Number);
+    currentLineup.teams[ti].parties[pi].name = e.target.value; scheduleSave();
+  }));
+  document.querySelectorAll('[data-remove-party]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const [ti,pi] = btn.dataset.removeParty.split('-').map(Number);
+    currentLineup.teams[ti].parties.splice(pi,1); scheduleSave(); renderEditor();
+  }));
+  document.querySelectorAll('[data-slot]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const [ti,pi,si] = btn.dataset.slot.split('-').map(Number);
+    openPicker(ti,pi,si);
+  }));
+}
+function tplTeam(team, ti){
+  return `
+    <div class="team-block">
+      <div class="team-header">
+        <input class="team-name-input" data-team-name="${ti}" value="${escapeHtml(team.name)}">
+        <div style="display:flex; gap:8px;">
+          <button class="btn ghost small" data-add-party="${ti}">+ Party</button>
+          <button class="btn danger small" data-remove-team="${ti}">Remove Team</button>
+        </div>
+      </div>
+      <div class="party-grid">${team.parties.map((p,pi)=>tplParty(p,ti,pi)).join('')}</div>
+    </div>
+  `;
+}
+function tplParty(party, ti, pi){
+  const counts = countByName();
+  return `
+    <div class="party-card">
+      <div class="party-card-head">
+        <input class="party-name-input" data-party-name="${ti}-${pi}" value="${escapeHtml(party.name)}">
+        <button style="background:none;border:none;color:var(--ink-soft);cursor:pointer;font-size:15px;" data-remove-party="${ti}-${pi}" title="Remove this party">&times;</button>
+      </div>
+      ${party.slots.map((slot,si)=>{
+        const isDup = slot.name && counts[slot.name] > 1;
+        const label = slot.name ? `${slot.name}${slot.job?' — '+slot.job:''}` : '— empty —';
+        return `<button class="slot-btn ${isDup?'dup-slot':''}" data-slot="${ti}-${pi}-${si}">
+          <span class="slot-btn-label">${jobIconSvg(slot.job)}<span class="slot-label-text">${escapeHtml(label)}</span></span>
+          <span style="color:var(--ink-soft); font-size:11px;">&#9662;</span>
+        </button>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+/* ========================= Assignment picker ========================= */
+function openPicker(ti,pi,si){
+  picker = {ti,pi,si};
+  $('assign-search').value = '';
+  const jobs = [...new Set(roster.map(m=>m.job).filter(Boolean))].sort();
+  $('assign-job-filter').innerHTML = '<option value="">All Jobs</option>' + jobs.map(j=>`<option value="${j}">${j}</option>`).join('');
+  $('assign-job-filter').value = '';
+  renderPickerOptions();
+  $('assign-popover').classList.remove('hidden');
+  setTimeout(()=>$('assign-search').focus(), 0);
+}
+function closePicker(){ picker = null; $('assign-popover').classList.add('hidden'); }
+function renderPickerOptions(){
+  if(!picker) return;
+  const { ti,pi,si } = picker;
+  const currentVal = currentLineup.teams[ti].parties[pi].slots[si].name;
+  const jobFilter = $('assign-job-filter').value;
+  const search = $('assign-search').value.trim().toLowerCase();
+  const counts = countByName();
+
+  let list = roster.slice();
+  if(jobFilter) list = list.filter(m=>(m.job||'')===jobFilter);
+  if(search) list = list.filter(m=>m.name.toLowerCase().includes(search));
+  list = list.filter(m=>{
+    const usedElsewhere = m.name===currentVal ? (counts[m.name]||0)>1 : (counts[m.name]||0)>0;
+    return !usedElsewhere;
+  });
+  list.sort((a,b)=>a.name.localeCompare(b.name));
+
+  const emptyRow = `<div class="assign-option ${!currentVal?'is-selected':''}" data-pick="">— empty —</div>`;
+  const rows = list.map(m=>`
+    <div class="assign-option ${m.name===currentVal?'is-selected':''}" data-pick="${escapeHtml(m.name)}">
+      <span>${escapeHtml(m.name)}</span>
+      <span class="assign-option-job">${jobIconSvg(m.job)}${escapeHtml(m.job||'')}</span>
+    </div>
+  `).join('');
+  $('assign-options').innerHTML = emptyRow + (rows || '<div style="padding:20px;text-align:center;color:var(--ink-soft);font-size:13px;">No matches</div>');
+
+  document.querySelectorAll('[data-pick]').forEach(row=>row.addEventListener('click', ()=>{
+    const name = row.dataset.pick;
+    const job = name ? (roster.find(m=>m.name===name)||{}).job||'' : '';
+    currentLineup.teams[ti].parties[pi].slots[si] = { name, job };
+    scheduleSave();
+    closePicker();
+    renderEditor();
+  }));
+}
+$('assign-search').addEventListener('input', renderPickerOptions);
+$('assign-job-filter').addEventListener('change', renderPickerOptions);
+$('assign-popover').addEventListener('click', (e)=>{ if(e.target.id==='assign-popover') closePicker(); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && picker) closePicker(); });
+
+/* ========================= Init ========================= */
+if(localStorage.getItem(AUTH_FLAG_KEY) === '1'){
+  showApp();
+} else {
+  $('login-section').classList.remove('hidden');
+}
+</script>
+</body>
+</html>

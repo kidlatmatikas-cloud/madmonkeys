@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guild War Log — Party Lineup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;800;900&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0a0e14; --bg-panel:#111820; --bg-panel-2:#0c1119; --bg-elevated:#161f2a;
+  --ink:#e7edf3; --ink-soft:#7c8998; --ink-faint:#4a5563;
+  --cyan:#2de2ff; --cyan-dim:#3fb8cf; --magenta:#ff3d6e; --green:#3dffa0; --gold:#ffb84d;
+  --line:rgba(255,255,255,.09); --line-strong:rgba(255,255,255,.18); --shadow:rgba(0,0,0,.55);
+}
+*{box-sizing:border-box;}
+body{margin:0;}
+html,body{
+  background:radial-gradient(ellipse 900px 500px at 50% -10%, #16202c 0%, #0a0e14 55%);
+  color:var(--ink); font-family:'Rajdhani',sans-serif; font-weight:500; font-size:16px; line-height:1.5; min-height:100vh;
+}
+a{color:var(--cyan);}
+.wrap{ max-width:1300px; margin:0 auto; padding:32px 24px 70px; }
+.masthead{ display:flex; align-items:flex-end; justify-content:space-between; gap:16px; padding-bottom:16px; margin-bottom:8px; border-bottom:1px solid var(--line-strong); flex-wrap:wrap; }
+.masthead h1{ font-family:'Orbitron',sans-serif; font-weight:800; letter-spacing:.03em; text-transform:uppercase; font-size:clamp(20px,2.2vw,30px); margin:0; text-shadow:0 0 18px rgba(45,226,255,.25); }
+.masthead .sub{ font-size:13px; color:var(--ink-soft); letter-spacing:.1em; text-transform:uppercase; font-weight:600; }
+label{ font-size:12.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--ink-soft); display:block; margin-bottom:5px; font-weight:600; }
+input[type=text], input[type=date], input[type=email], input[type=number], select, textarea{
+  font-family:'Rajdhani',sans-serif; font-weight:600; font-size:15.5px; color:var(--ink); background:var(--bg-panel-2);
+  border:1px solid var(--line); border-radius:0; padding:9px 11px; width:100%;
+}
+input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 0 0 1px var(--cyan); }
+.field-row{ display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+.field-row > div{ flex:1 1 160px; }
+.btn{
+  font-family:'Rajdhani',sans-serif; font-weight:700; font-size:14px; letter-spacing:.05em; text-transform:uppercase; cursor:pointer;
+  padding:10px 18px; border:1px solid var(--cyan); background:transparent; color:var(--cyan);
+  clip-path:polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+}
+.btn:hover{ background:rgba(45,226,255,.1); }
+.btn:disabled{ opacity:.4; cursor:not-allowed; }
+.btn.gold{ border-color:var(--gold); color:var(--gold); }
+.btn.gold:hover{ background:rgba(255,184,77,.12); }
+.btn.ghost{ border-color:var(--line-strong); color:var(--ink-soft); }
+.btn.ghost:hover{ color:var(--ink); background:rgba(255,255,255,.04); }
+.btn.danger{ border-color:var(--magenta); color:var(--magenta); }
+.btn.danger:hover{ background:rgba(255,61,110,.12); }
+.btn.small{ padding:6px 12px; font-size:12px; }
+.hud-panel{ position:relative; background:var(--bg-panel); border:1px solid var(--line-strong); padding:30px 32px; box-shadow:0 4px 24px var(--shadow); margin-top:20px; }
+.corner{ position:absolute; width:16px; height:16px; pointer-events:none; }
+.corner-tl{ top:-1px; left:-1px; border-top:2px solid var(--cyan); border-left:2px solid var(--cyan); }
+.corner-tr{ top:-1px; right:-1px; border-top:2px solid var(--cyan); border-right:2px solid var(--cyan); }
+.corner-bl{ bottom:-1px; left:-1px; border-bottom:2px solid var(--cyan); border-left:2px solid var(--cyan); }
+.corner-br{ bottom:-1px; right:-1px; border-bottom:2px solid var(--cyan); border-right:2px solid var(--cyan); }
+.section-title{ font-family:'Orbitron',sans-serif; font-size:17px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; margin:0 0 8px; }
+.section-hint{ font-size:14px; color:var(--ink-soft); margin:0 0 18px; max-width:70ch; line-height:1.6; }
+.status-line{ font-size:13.5px; margin-top:10px; color:var(--ink-soft); min-height:18px; }
+.status-line.error{ color:var(--magenta); }
+.status-line.ok{ color:var(--green); }
+.empty-state{ padding:30px 10px; text-align:center; color:var(--ink-soft); font-size:14.5px; }
+.job-icon{ width:17px; height:17px; flex:0 0 auto; display:inline-block; vertical-align:middle; }
+.hidden{ display:none !important; }
+.chip{ display:inline-flex; align-items:center; gap:6px; background:var(--bg-panel-2); border:1px solid var(--line-strong); padding:5px 10px; margin:3px 4px 3px 0; font-size:13px; font-family:'Share Tech Mono',monospace; }
+.chip button{ background:none; border:none; color:var(--magenta); cursor:pointer; font-size:13px; padding:0; }
+/* team / party editing */
+.team-name-input{ font-family:'Orbitron',sans-serif; font-weight:700; font-size:17px; text-transform:uppercase; letter-spacing:.03em; background:transparent; border:none; color:var(--cyan); max-width:280px; padding:2px 0; border-bottom:1px dashed transparent; }
+.team-name-input:focus,.team-name-input:hover{ border-bottom:1px dashed var(--cyan); outline:none; }
+.team-header{ display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:16px; padding-bottom:10px; border-bottom:1px solid var(--line-strong); }
+.team-block{ margin-bottom:32px; }
+.party-grid{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:16px; margin-bottom:10px; }
+@media (max-width:1000px){ .party-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
+@media (max-width:520px){ .party-grid{ grid-template-columns:1fr; } }
+.party-card{ border:1px solid var(--line); background:var(--bg-panel-2); padding:12px; }
+.party-card-head{ display:flex; justify-content:space-between; align-items:center; font-weight:700; font-size:14px; color:var(--cyan-dim); text-transform:uppercase; letter-spacing:.04em; margin-bottom:10px; }
+.party-name-input{ background:transparent; border:none; color:var(--cyan-dim); font-weight:700; font-size:14px; text-transform:uppercase; letter-spacing:.04em; padding:2px 0; flex:1 1 auto; border-bottom:1px dashed transparent; }
+.party-name-input:hover,.party-name-input:focus{ border-bottom:1px dashed var(--cyan-dim); outline:none; }
+.slot-btn{
+  font-weight:600; font-size:15.5px; color:var(--ink); background:var(--bg-panel); border:1px solid var(--line);
+  padding:8px 9px; width:100%; margin-bottom:7px; text-align:left; cursor:pointer;
+  display:flex; justify-content:space-between; align-items:center; gap:8px;
+}
+.slot-btn:hover{ border-color:var(--line-strong); }
+.slot-btn.readonly{ cursor:default; }
+.slot-btn.readonly:hover{ border-color:var(--line); }
+.slot-btn-label{ flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:7px; overflow:hidden; }
+.slot-label-text{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.slot-btn .job-icon{ width:19px; height:19px; filter:drop-shadow(0 0 4px currentColor); }
+.dup-slot{ border-color:var(--magenta) !important; }
+/* assignment popover */
+.assign-popover{ position:fixed; inset:0; background:rgba(4,6,10,.6); z-index:60; display:flex; align-items:center; justify-content:center; }
+.assign-popover.hidden{ display:none; }
+.assign-card{ width:300px; max-height:400px; display:flex; flex-direction:column; background:var(--bg-elevated); border:1px solid var(--line-strong); box-shadow:0 10px 30px rgba(0,0,0,.55); }
+.assign-header{ padding:10px; border-bottom:1px solid var(--line-strong); display:flex; flex-direction:column; gap:8px; }
+.assign-options{ overflow-y:auto; flex:1 1 auto; }
+.assign-option{ display:flex; justify-content:space-between; align-items:center; gap:10px; padding:9px 12px; cursor:pointer; font-family:'Share Tech Mono',monospace; font-size:13.5px; border-bottom:1px solid var(--line); }
+.assign-option:hover{ background:rgba(45,226,255,.08); }
+.assign-option.is-selected{ background:rgba(45,226,255,.14); color:var(--cyan); }
+.assign-option-job{ color:var(--ink-soft); font-size:11.5px; display:inline-flex; align-items:center; gap:5px; }
+/* lineup list */
+.lineup-card{ border:1px solid var(--line); background:rgba(255,255,255,.015); padding:14px 16px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+.lineup-title{ font-weight:700; font-size:15px; }
+.lineup-title a{ color:var(--ink); text-decoration:none; cursor:pointer; }
+.lineup-title a:hover{ color:var(--cyan); }
+.lineup-meta{ font-size:12.5px; color:var(--ink-soft); font-family:'Share Tech Mono',monospace; margin-top:2px; }
+.tabs{ display:flex; gap:6px; margin:20px 0 4px; }
+.tab-btn{ font-weight:700; font-size:13.5px; letter-spacing:.06em; text-transform:uppercase; background:var(--bg-panel-2); border:1px solid var(--line); padding:9px 18px; cursor:pointer; color:var(--ink-soft); }
+.tab-btn.active{ color:var(--bg); background:var(--cyan); border-color:var(--cyan); }
+
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <h1 id="masthead-title">// WAR LOG</h1>
+      <div class="sub">View Only — Party Lineup</div>
+    </div>
+  </header>
+  <div id="content"><div class="status-line">Loading…</div></div>
+</div>
+
+<script>
+/* Same config as index.html — fill in from Supabase → Project Settings → API */
+const SUPABASE_URL = 'https://ydftjgrxhrbjmzzwstnr.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_1Uy0YLjaqqSgk52hS3Lm4Q_0zaxPv4x';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const JOB_ICONS = {
+  'High Priest':'<path d="M10 2h4v7h7v4h-7v9h-4v-9H3V9h7V2z"/>',
+  'High Wizard':'<circle cx="12" cy="5" r="3"/><path d="M10.8 8.5h2.4v13.5h-2.4z"/><path d="M19 2.5l0.9 2.2 2.2 0.9-2.2 0.9-0.9 2.2-0.9-2.2-2.2-0.9 2.2-0.9z"/>',
+  Paladin:'<path fill-rule="evenodd" clip-rule="evenodd" d="M12 2l8 3.2v5.6c0 5.7-3.4 9.4-8 11.2-4.6-1.8-8-5.5-8-11.2V5.2L12 2zm-1 5.5h2v3.7h3.7v2H13v3.8h-2v-3.8H7.3v-2H11V7.5z"/>',
+  'Lord Knight':'<path d="M12 1l3 12H9z"/><rect x="4.5" y="13.3" width="15" height="2.2" rx="0.4"/><rect x="10.4" y="15.5" width="3.2" height="4.3" rx="0.4"/><circle cx="12" cy="21" r="1.9"/>',
+  Mastersmith:'<rect x="5.5" y="2" width="13" height="7.2" rx="1.4"/><rect x="10.4" y="9.2" width="3.2" height="12.8" rx="1"/>',
+  Summoner:'<circle cx="8.3" cy="6.8" r="2.1"/><circle cx="15.7" cy="6.8" r="2.1"/><circle cx="4.4" cy="11.6" r="1.9"/><circle cx="19.6" cy="11.6" r="1.9"/><path d="M12 12c-3.9 0-6.5 2.6-6.5 5.9 0 3.4 3 5.6 6.5 5.6s6.5-2.2 6.5-5.6c0-3.3-2.6-5.9-6.5-5.9z"/>',
+  Sniper:'<path d="M4 2c6.8 3.1 6.8 16.9 0 20 8.7-2 10.8-9.3 10.8-10S12.7 4 4 2z"/><rect x="8.5" y="11.2" width="11.5" height="1.7"/><path d="M20 8.8l4 3.2-4 3.2z"/><path d="M8.5 9.4l3 2.6-3 2.6z"/>',
+  'Assasin Cross':'<path d="M12 2l2.6 7.2L12 11l-2.6-1.8z"/><rect x="7.3" y="11" width="9.4" height="1.7" rx="0.4"/><rect x="10.5" y="12.7" width="3" height="4.2" rx="0.4"/><circle cx="12" cy="18.3" r="1.6"/>',
+  Stalker:'<path d="M2 1.5c4 2.5 5.5 7 5.5 10.5S6 19.5 2 22c6-1 9-5.5 9-10.5S8 3.5 2 1.5z"/><rect x="9" y="10.3" width="14" height="3.4" rx="0.8"/>',
+  Biochemist:'<path d="M9.5 2h5v1.8h-1.1v5.5l5.6 9.3c1.3 2.1-.3 4.9-2.9 4.9H7.9c-2.6 0-4.2-2.8-2.9-4.9l5.6-9.3V3.8H9.5V2z"/>',
+  Rebellion:'<rect x="3" y="10" width="17" height="3.4" rx="0.8"/><rect x="20" y="10.8" width="2.6" height="1.8" rx="0.3"/><path d="M5 13.4h4.6l-1 7.6h-3.1z"/>',
+  Gypsy:'<circle cx="8.2" cy="16" r="6.3"/><rect x="12.7" y="2.3" width="2.3" height="15.5" rx="1" transform="rotate(20 13.8 10)"/><circle cx="17.6" cy="4" r="2"/>',
+  Minstrel:'<circle cx="6.5" cy="18.3" r="2.4"/><circle cx="16.2" cy="16.1" r="2.4"/><path d="M8.7 18.3V4.7L18.4 2.5v11.3h-1.9V5.9l-7.8 1.8v10.6z"/>',
+  Professor:'<path d="M12 6.3C9.8 4.9 6.9 4.4 4 5.4v13.1c2.9-1 5.8-.5 8 .9 2.2-1.4 5.1-1.9 8-.9V5.4c-2.9-1-5.8-.5-8 .9z"/>',
+  Asura:'<rect x="5" y="9" width="14" height="11" rx="3"/><circle cx="8" cy="8.5" r="2"/><circle cx="12" cy="7.8" r="2.1"/><circle cx="16" cy="8.5" r="2"/><path d="M3.5 12a2.3 2.3 0 012.3-2.3h1.4v7.6H5.8A2.3 2.3 0 013.5 15V12z"/>'
+};
+const JOB_COLORS = { 'High Priest':'#ffd24d','High Wizard':'#a374ff',Paladin:'#4db8ff','Lord Knight':'#ff4444',Mastersmith:'#ff9838',Summoner:'#4dffa6',Sniper:'#a8e63d','Assasin Cross':'#e8305f',Stalker:'#c34dff',Biochemist:'#3dffc4',Rebellion:'#ff6b3d',Gypsy:'#ff5eb0',Minstrel:'#3ddbe6',Professor:'#5c7fff',Asura:'#ffb83d' };
+function jobIconSvg(job){
+  const inner = JOB_ICONS[job];
+  if(!inner) return '';
+  return `<svg class="job-icon" style="color:${JOB_COLORS[job]||'#7c8998'}" viewBox="0 0 24 24" fill="currentColor" stroke="none">${inner}</svg>`;
+}
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function render(){
+  const params = new URLSearchParams(location.search);
+  const slug = params.get('slug');
+  const content = document.getElementById('content');
+  if(!slug){
+    content.innerHTML = '<div class="empty-state">No lineup specified.</div>';
+    return;
+  }
+  const { data: lineup } = await sb
+    .from('party_lineups')
+    .select('*, guild_settings(name)')
+    .eq('share_slug', slug)
+    .single();
+
+  if(!lineup){
+    content.innerHTML = '<div class="empty-state">This lineup link doesn\'t exist or was removed.</div>';
+    return;
+  }
+
+  document.getElementById('masthead-title').textContent = (lineup.guild_settings?.name || 'Guild').toUpperCase() + ' // WAR LOG';
+  document.title = lineup.name + ' — Guild War Log';
+
+  const meta = [lineup.date, lineup.map_name, lineup.opposing_guild ? 'vs '+lineup.opposing_guild : null].filter(Boolean).join('   ·   ');
+
+  content.innerHTML = `
+    <div class="hud-panel">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <h2 class="section-title">${escapeHtml(lineup.name)}</h2>
+      <p class="section-hint">${escapeHtml(meta)}</p>
+      ${lineup.teams.map(team => `
+        <div class="team-block">
+          <div class="team-header"><span class="team-name-input" style="border-bottom:none;">${escapeHtml(team.name)}</span></div>
+          <div class="party-grid">
+            ${team.parties.map(party => `
+              <div class="party-card">
+                <div class="party-card-head"><span>${escapeHtml(party.name)}</span></div>
+                ${party.slots.map(slot => `
+                  <div class="slot-btn readonly">
+                    <span class="slot-btn-label">${jobIconSvg(slot.job)}<span class="slot-label-text">${slot.name ? escapeHtml(slot.name) + (slot.job ? ' — '+escapeHtml(slot.job) : '') : '— empty —'}</span></span>
+                  </div>
+                `).join('')}
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+    <footer style="text-align:center; font-size:12px; color:var(--ink-faint); margin-top:24px;">
+      View-only — ask an officer if something needs to change.
+    </footer>
+  `;
+}
+render();
+</script>
+</body>
+</html>
