@@ -321,9 +321,15 @@ const JOB_ICONS = {
 };
 const JOB_COLORS = { 'High Priest':'#ffd24d','High Wizard':'#a374ff',Paladin:'#4db8ff','Lord Knight':'#ff4444',Mastersmith:'#ff9838',Summoner:'#4dffa6',Sniper:'#a8e63d','Assasin Cross':'#e8305f',Stalker:'#c34dff',Biochemist:'#3dffc4',Rebellion:'#ff6b3d',Gypsy:'#ff5eb0',Minstrel:'#3ddbe6',Professor:'#5c7fff',Asura:'#ffb83d' };
 function jobIconSvg(job){
+  if(!job) return '';
   const inner = JOB_ICONS[job];
-  if(!inner) return '';
-  return `<svg class="job-icon" style="color:${JOB_COLORS[job]||'#7c8998'}" viewBox="0 0 24 24" fill="currentColor" stroke="none">${inner}</svg>`;
+  const color = JOB_COLORS[job] || '#7c8998';
+  if(!inner){
+    // Fallback for jobs outside the standard icon set (e.g. 3rd-class names
+    // like "Sorcerer") so something always renders instead of nothing.
+    return `<svg class="job-icon" style="color:${color}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/></svg>`;
+  }
+  return `<svg class="job-icon" style="color:${color}" viewBox="0 0 24 24" fill="currentColor" stroke="none">${inner}</svg>`;
 }
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -1054,9 +1060,7 @@ function renderAttendanceTab(){
       </tr></thead>
       <tbody>${sorted.map(m=>{
         const cls = m.attendance>=75?'attn-high':(m.attendance>=40?'attn-mid':'attn-low');
-        const jobCell = m.id
-          ? `<div class="job-cell">${jobIconSvg(m.job)}<select class="roster-job-select" data-attn-job-id="${m.id}"></select></div>`
-          : `<div class="job-cell">${jobIconSvg(m.job)}<span>${escapeHtml(m.job||'—')}</span></div>`;
+        const jobCell = `<div class="job-cell">${jobIconSvg(m.job)}<select class="roster-job-select" data-attn-job-id="${m.id||''}" data-attn-name="${escapeHtml(m.name)}" data-attn-current="${escapeHtml(m.job||'')}"></select></div>`;
         return `<tr>
           <td data-label="Name">${escapeHtml(m.name)}</td>
           <td data-label="Job">${jobCell}</td>
@@ -1076,15 +1080,27 @@ function renderAttendanceTab(){
   const usedJobs = [...new Set(roster.map(r=>r.job).filter(Boolean))].sort();
   const existingJobs = usedJobs.length ? usedJobs : JOB_OPTIONS;
   document.querySelectorAll('[data-attn-job-id]').forEach(sel=>{
-    const id = sel.dataset.attnJobId;
-    const m = roster.find(x=>x.id===id);
-    const current = m ? (m.job||'') : '';
+    const name = sel.dataset.attnName;
+    const current = sel.dataset.attnCurrent || '';
     sel.innerHTML = '<option value="">— Select —</option>' + existingJobs.map(j=>`<option value="${j}" ${j===current?'selected':''}>${j}</option>`).join('');
     sel.addEventListener('change', async ()=>{
-      await sb.from('roster_members').update({ job: sel.value }).eq('id', id);
-      if(m) m.job = sel.value;
+      const newJob = sel.value;
+      const id = sel.dataset.attnJobId;
+      if(id){
+        const { error } = await sb.from('roster_members').update({ job:newJob }).eq('id', id);
+        if(error){ setStatus('Could not save job: '+error.message, 'error'); return; }
+        const rm = roster.find(x=>x.id===id);
+        if(rm) rm.job = newJob;
+      } else {
+        // This name isn't on the roster yet (session-only) — add them.
+        const { data, error } = await sb.from('roster_members').insert({ guild_id:guildId, name, job:newJob }).select().single();
+        if(error){ setStatus('Could not save job: '+error.message, 'error'); return; }
+        roster.push(data);
+        sel.dataset.attnJobId = data.id;
+      }
+      sel.dataset.attnCurrent = newJob;
       const cell = sel.closest('.job-cell');
-      if(cell){ const oldIcon=cell.querySelector('.job-icon'); if(oldIcon) oldIcon.remove(); cell.insertAdjacentHTML('afterbegin', jobIconSvg(sel.value)); }
+      if(cell){ const oldIcon=cell.querySelector('.job-icon'); if(oldIcon) oldIcon.remove(); cell.insertAdjacentHTML('afterbegin', jobIconSvg(newJob)); }
     });
   });
   document.querySelectorAll('[data-sort-attn]').forEach(th=>th.addEventListener('click', ()=>{
