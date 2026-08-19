@@ -44,7 +44,7 @@ module.exports = async (req, res) => {
             { inline_data: { mime_type: mediaType, data: imageBase64 } },
           ],
         }],
-        generationConfig: { maxOutputTokens: 1024, temperature: 0 },
+        generationConfig: { maxOutputTokens: 4096, temperature: 0 },
       }),
     });
 
@@ -66,10 +66,19 @@ module.exports = async (req, res) => {
     const end = raw.lastIndexOf(']');
     if (start >= 0 && end >= 0) raw = raw.slice(start, end + 1);
 
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      res.status(500).json({ error: 'Unexpected response shape from the model' });
-      return;
+    let parsed;
+   try{
+     parsed = JSON.parse(raw);
+   }catch(parseErr){
+     const looksTruncated = !raw.trim().endsWith(']');
+     res.status(500).json({ error: looksTruncated
+       ? 'The response got cut off before finishing (likely a very large roster). Try scanning fewer rows per screenshot, or split it into two images.'
+       : 'Got an unreadable response from the model. Try again.' });
+     return;
+   }
+   if (!Array.isArray(parsed)) {
+     res.status(500).json({ error: 'Unexpected response shape from the model' });
+     return;
     }
 
     const rows = parsed
