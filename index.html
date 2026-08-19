@@ -475,11 +475,11 @@ function computeMvpCounts(){
   }));
   return counts;
 }
-function blankMember(name){ return { name, mmid:'', job:'', sessions:0, tablets:0, monsters:0, kills:0, assists:0, deaths:0, scoreSum:0, best:0 }; }
+function blankMember(name){ return { name, id:null, mmid:'', job:'', sessions:0, tablets:0, monsters:0, kills:0, assists:0, deaths:0, scoreSum:0, best:0 }; }
 function computeRosterStats(){
   const totalSessions = sessions.length;
   const map = {};
-  roster.forEach(m=>{ map[m.name]=blankMember(m.name); map[m.name].mmid=m.mmid||''; map[m.name].job=m.job||''; });
+  roster.forEach(m=>{ map[m.name]=blankMember(m.name); map[m.name].id=m.id; map[m.name].mmid=m.mmid||''; map[m.name].job=m.job||''; });
   sessions.forEach(s=>(s.entries||[]).forEach(r=>{
     if(!map[r.name]) map[r.name]=blankMember(r.name);
     const m=map[r.name];
@@ -1054,9 +1054,12 @@ function renderAttendanceTab(){
       </tr></thead>
       <tbody>${sorted.map(m=>{
         const cls = m.attendance>=75?'attn-high':(m.attendance>=40?'attn-mid':'attn-low');
+        const jobCell = m.id
+          ? `<div class="job-cell">${jobIconSvg(m.job)}<select class="roster-job-select" data-attn-job-id="${m.id}"></select></div>`
+          : `<div class="job-cell">${jobIconSvg(m.job)}<span>${escapeHtml(m.job||'—')}</span></div>`;
         return `<tr>
           <td data-label="Name">${escapeHtml(m.name)}</td>
-          <td data-label="Job"><div class="job-cell">${jobIconSvg(m.job)}<span>${escapeHtml(m.job||'—')}</span></div></td>
+          <td data-label="Job">${jobCell}</td>
           <td class="num" data-label="Sessions">${m.sessions}</td>
           <td class="num ${cls}" data-label="Attend %">${m.attendance.toFixed(0)}%</td>
           <td class="num" data-label="Avg Score">${m.avgScore.toFixed(0)}</td>
@@ -1070,6 +1073,20 @@ function renderAttendanceTab(){
       }).join('')}</tbody>
     </table>`}
   `;
+  const usedJobs = [...new Set(roster.map(r=>r.job).filter(Boolean))].sort();
+  const existingJobs = usedJobs.length ? usedJobs : JOB_OPTIONS;
+  document.querySelectorAll('[data-attn-job-id]').forEach(sel=>{
+    const id = sel.dataset.attnJobId;
+    const m = roster.find(x=>x.id===id);
+    const current = m ? (m.job||'') : '';
+    sel.innerHTML = '<option value="">— Select —</option>' + existingJobs.map(j=>`<option value="${j}" ${j===current?'selected':''}>${j}</option>`).join('');
+    sel.addEventListener('change', async ()=>{
+      await sb.from('roster_members').update({ job: sel.value }).eq('id', id);
+      if(m) m.job = sel.value;
+      const cell = sel.closest('.job-cell');
+      if(cell){ const oldIcon=cell.querySelector('.job-icon'); if(oldIcon) oldIcon.remove(); cell.insertAdjacentHTML('afterbegin', jobIconSvg(sel.value)); }
+    });
+  });
   document.querySelectorAll('[data-sort-attn]').forEach(th=>th.addEventListener('click', ()=>{
     const key = th.dataset.sortAttn;
     if(attendanceSort.key===key) attendanceSort.dir = attendanceSort.dir==='asc'?'desc':'asc';
