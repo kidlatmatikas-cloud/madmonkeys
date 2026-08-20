@@ -1215,6 +1215,13 @@ function countByName(){
   currentLineup.teams.forEach(t=>t.parties.forEach(p=>p.slots.forEach(s=>{ if(s.name) counts[s.name]=(counts[s.name]||0)+1; })));
   return counts;
 }
+function linkStatusHtml(l){
+  if(!l.share_expires_at) return '';
+  const expired = new Date(l.share_expires_at).getTime() < Date.now();
+  return `<div style="font-size:11.5px; margin-top:6px; color:${expired?'var(--magenta)':'var(--ink-faint)'};">
+    ${expired ? 'Link expired' : 'Link active — expires ' + new Date(l.share_expires_at).toLocaleString()}
+  </div>`;
+}
 function renderEditor(){
   const l = currentLineup;
   const counts = countByName();
@@ -1234,9 +1241,13 @@ function renderEditor(){
           <div><label>Opposing Guild</label><input type="text" id="f-opp" placeholder="Enemy guild name" value="${escapeHtml(l.opposing_guild||'')}"></div>
         </div>
       </div>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button class="btn gold small" id="copy-share-btn">Copy Share Link</button>
-        <button class="btn danger small" id="delete-lineup-btn">Delete Lineup</button>
+      <div style="text-align:right;">
+        <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+          <button class="btn gold small" id="copy-share-btn">Copy Share Link</button>
+          <button class="btn ghost small" id="renew-link-btn">Renew Link (24h)</button>
+          <button class="btn danger small" id="delete-lineup-btn">Delete Lineup</button>
+        </div>
+        ${linkStatusHtml(l)}
       </div>
     </div>
     ${tplAbsences()}
@@ -1254,7 +1265,17 @@ function renderEditor(){
   $('copy-share-btn').addEventListener('click', ()=>{
     const url = `${location.origin}${location.pathname.replace('index.html','')}view.html?slug=${currentLineup.share_slug}`;
     navigator.clipboard.writeText(url);
-    setStatus('Share link copied.', 'ok');
+    const expired = currentLineup.share_expires_at && new Date(currentLineup.share_expires_at).getTime() < Date.now();
+    setStatus(expired ? 'Link copied — but it\'s expired, click Renew Link first.' : 'Share link copied.', expired ? 'error' : 'ok');
+  });
+  $('renew-link-btn').addEventListener('click', async ()=>{
+    const newExpiry = new Date(Date.now() + 24*60*60*1000).toISOString();
+    await sb.from('party_lineups').update({ share_expires_at: newExpiry }).eq('id', currentLineup.id);
+    currentLineup.share_expires_at = newExpiry;
+    const idx = lineups.findIndex(x=>x.id===currentLineup.id);
+    if(idx>=0) lineups[idx].share_expires_at = newExpiry;
+    setStatus('Link renewed for another 24 hours.', 'ok');
+    renderEditor();
   });
   $('delete-lineup-btn').addEventListener('click', async ()=>{
     if(!confirm("Delete this lineup? This can't be undone.")) return;
