@@ -201,6 +201,12 @@ async function render(){
     content.innerHTML = '<div class="empty-state">This lineup link doesn\'t exist or was removed.</div>';
     return;
   }
+
+  if(lineup.share_expires_at && new Date(lineup.share_expires_at).getTime() < Date.now()){
+    document.getElementById('masthead-title').textContent = (lineup.guild_settings?.name || 'Guild').toUpperCase() + ' // WAR LOG';
+    content.innerHTML = '<div class="empty-state">This link has expired (links last 24 hours). Ask an officer for a fresh one.</div>';
+    return;
+  }
   currentLineup = lineup;
 
   document.getElementById('masthead-title').textContent = (lineup.guild_settings?.name || 'Guild').toUpperCase() + ' // WAR LOG';
@@ -218,6 +224,7 @@ async function render(){
         ${lineup.map_name ? `<div class="meta-item"><div class="meta-label">Map</div><div class="meta-value">${escapeHtml(lineup.map_name)}</div></div>` : ''}
         ${lineup.opposing_guild ? `<div class="meta-item"><div class="meta-label">Opponent</div><div class="meta-value">${escapeHtml(lineup.opposing_guild)}</div></div>` : ''}
       </div>
+      ${lineup.share_expires_at ? `<div style="font-size:11.5px; color:var(--ink-faint); margin:-14px 0 20px;">This link expires ${new Date(lineup.share_expires_at).toLocaleString()}</div>` : ''}
       ${lineup.teams.map(team => `
         <div class="team-block">
           <div class="team-header"><span class="team-name-input" style="border-bottom:none;">${escapeHtml(team.name)}</span></div>
@@ -285,9 +292,14 @@ async function render(){
         resultMsg = "Couldn't save — try again.";
         resultCls = 'error';
       } else {
-        // Clear their slot(s) in this lineup so the party list reflects it immediately
+        // Re-fetch the latest teams right before modifying — if someone else
+        // marked themselves absent moments ago, we must build on THEIR
+        // change, not the possibly-stale copy loaded when this page opened.
+        // (Without this, whoever saves last can accidentally undo an
+        // earlier person's removal.)
+        const { data: latestLineup } = await sb.from('party_lineups').select('teams').eq('id', currentLineup.id).single();
+        const teams = latestLineup ? latestLineup.teams : JSON.parse(JSON.stringify(currentLineup.teams));
         let changed = false;
-        const teams = JSON.parse(JSON.stringify(currentLineup.teams));
         teams.forEach(t=>t.parties.forEach(p=>p.slots.forEach(s=>{
           if(s.name === name){ s.name=''; s.job=''; changed=true; }
         })));
