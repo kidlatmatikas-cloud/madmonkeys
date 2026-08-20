@@ -433,6 +433,7 @@ const TAB_IDS = ['overview','new','log','fullroster','attendance','parties','off
    that ever matters for this guild. */
 const AUTH_FLAG_KEY = 'gwl_officer_session';
 let currentOfficer = null; // { id, username, role }
+function isAdmin(){ return !!(currentOfficer && currentOfficer.role === 'admin'); }
 
 async function hashPassword(username, password){
   const enc = new TextEncoder();
@@ -618,6 +619,7 @@ async function renderOfficersTab(){
   });
 }
 async function handleOfficerAction(action, id){
+  if(!isAdmin()) return;
   if(action === 'approve') await sb.from('officers').update({ status: 'approved' }).eq('id', id);
   else if(action === 'reject' || action === 'revoke') await sb.from('officers').update({ status: 'rejected' }).eq('id', id);
   else if(action === 'promote') await sb.from('officers').update({ role: 'admin' }).eq('id', id);
@@ -1463,7 +1465,7 @@ function renderSessionBody(id){
       <span class="status-line" id="discord-status-${id}" style="margin:0;"></span>
       <div style="display:flex; gap:10px;">
         <button class="btn ghost small" data-post-discord="${id}">Post to Discord</button>
-        <button class="btn danger small" data-delete-session="${id}">Delete session</button>
+        ${isAdmin() ? `<button class="btn danger small" data-delete-session="${id}">Delete session</button>` : ''}
       </div>
     </div>
   `;
@@ -1487,7 +1489,9 @@ function renderSessionBody(id){
     const freshStatusEl = $('date-status-'+id);
     if(freshStatusEl){ freshStatusEl.className='status-line ok'; freshStatusEl.textContent='Date updated.'; }
   });
-  body.querySelector('[data-delete-session]').addEventListener('click', async ()=>{
+  const deleteSessionBtn = body.querySelector('[data-delete-session]');
+  if(deleteSessionBtn) deleteSessionBtn.addEventListener('click', async ()=>{
+    if(!isAdmin()) return;
     if(!confirm("Delete this session? This can't be undone.")) return;
     await sb.from('sessions').delete().eq('id', id);
     expandedSessionId=null;
@@ -1581,7 +1585,7 @@ function renderFullRosterTab(){
       <button class="btn gold small" id="fr-import-btn">Import Excel / CSV</button>
       <input type="file" id="fr-excel-input" accept=".xlsx,.xls,.csv" style="display:none;">
       <button class="btn ghost small" id="fr-export-btn">Export Excel / CSV</button>
-      <button class="btn danger small" id="fr-delete-selected-btn" disabled>Delete Selected (0)</button>
+      ${isAdmin() ? '<button class="btn danger small" id="fr-delete-selected-btn" disabled>Delete Selected (0)</button>' : ''}
     </div>
     <div class="status-line" id="fr-import-status"></div>
     <div class="field-row" style="align-items:flex-end; margin-top:14px;">
@@ -1598,27 +1602,28 @@ function renderFullRosterTab(){
     </details>
     <h3 style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin:16px 0 0;">${roster.length} member${roster.length===1?'':'s'}</h3>
     ${sorted.length ? `
+    ${isAdmin() ? `
     <div class="roster-toolbar">
       <label class="roster-select-all">
         <input type="checkbox" id="fr-select-all" ${sorted.length && sorted.every(m=>frSelected.has(m.id))?'checked':''}>
         Select all
       </label>
-    </div>
+    </div>` : ''}
     <table class="responsive">
       <thead><tr>
-        <th></th>
+        ${isAdmin() ? '<th></th>' : ''}
         <th class="sortable" data-sort-roster="mmid">UID${arrow('mmid')}</th>
         <th class="sortable" data-sort-roster="name">Name${arrow('name')}</th>
         <th class="sortable" data-sort-roster="job">Job${arrow('job')}</th>
-        <th></th>
+        ${isAdmin() ? '<th></th>' : ''}
       </tr></thead>
       <tbody>${sorted.map(m=>`
         <tr class="${frSelected.has(m.id)?'is-selected':''}">
-          <td data-label=""><input type="checkbox" class="fr-check" data-fr-check="${m.id}" ${frSelected.has(m.id)?'checked':''}></td>
+          ${isAdmin() ? `<td data-label=""><input type="checkbox" class="fr-check" data-fr-check="${m.id}" ${frSelected.has(m.id)?'checked':''}></td>` : ''}
           <td data-label="UID"><input type="text" class="roster-mmid-input" data-fr-field="mmid" data-fr-id="${m.id}" value="${escapeHtml(m.mmid||'')}" placeholder="UID"></td>
           <td data-label="Name"><input type="text" class="roster-name-input" data-fr-field="name" data-fr-id="${m.id}" value="${escapeHtml(m.name)}" placeholder="Name"></td>
           <td data-label="Job"><div class="job-cell">${jobIconSvg(m.job)}<select class="roster-job-select" data-fr-field="job" data-fr-id="${m.id}"></select></div></td>
-          <td data-label=""><button class="row-del" data-fr-remove="${m.id}" title="Delete this member">✕</button></td>
+          ${isAdmin() ? `<td data-label=""><button class="row-del" data-fr-remove="${m.id}" title="Delete this member">✕</button></td>` : ''}
         </tr>
       `).join('')}</tbody>
     </table>` : '<div class="empty-state">No members added yet.</div>'}
@@ -1634,36 +1639,39 @@ function renderFullRosterTab(){
   $('fr-export-btn').addEventListener('click', exportRosterExcel);
 
   const deleteSelBtn = $('fr-delete-selected-btn');
-  const updateDeleteSelBtn = ()=>{
-    deleteSelBtn.textContent = `Delete Selected (${frSelected.size})`;
-    deleteSelBtn.disabled = frSelected.size===0;
-  };
-  updateDeleteSelBtn();
-  const selectAllEl = $('fr-select-all');
-  if(selectAllEl) selectAllEl.addEventListener('change', ()=>{
-    if(selectAllEl.checked) sorted.forEach(m=>frSelected.add(m.id));
-    else sorted.forEach(m=>frSelected.delete(m.id));
-    renderFullRosterTab();
-  });
-  document.querySelectorAll('[data-fr-check]').forEach(cb=>cb.addEventListener('change', ()=>{
-    const id = cb.dataset.frCheck;
-    if(cb.checked) frSelected.add(id); else frSelected.delete(id);
+  if(deleteSelBtn){
+    const updateDeleteSelBtn = ()=>{
+      deleteSelBtn.textContent = `Delete Selected (${frSelected.size})`;
+      deleteSelBtn.disabled = frSelected.size===0;
+    };
     updateDeleteSelBtn();
-    const row = cb.closest('tr');
-    if(row) row.classList.toggle('is-selected', cb.checked);
-    if(selectAllEl) selectAllEl.checked = sorted.length>0 && sorted.every(m=>frSelected.has(m.id));
-  }));
-  deleteSelBtn.addEventListener('click', async ()=>{
-    if(frSelected.size===0) return;
-    if(!confirm(`Delete ${frSelected.size} selected member(s)? This can't be undone.`)) return;
-    const ids = [...frSelected];
-    await sb.from('roster_members').delete().in('id', ids);
-    frSelected.clear();
-    await loadRoster();
-    renderStatStrip();
-    renderFullRosterTab();
-    setStatus('Deleted selected members.', 'ok');
-  });
+    const selectAllEl = $('fr-select-all');
+    if(selectAllEl) selectAllEl.addEventListener('change', ()=>{
+      if(selectAllEl.checked) sorted.forEach(m=>frSelected.add(m.id));
+      else sorted.forEach(m=>frSelected.delete(m.id));
+      renderFullRosterTab();
+    });
+    document.querySelectorAll('[data-fr-check]').forEach(cb=>cb.addEventListener('change', ()=>{
+      const id = cb.dataset.frCheck;
+      if(cb.checked) frSelected.add(id); else frSelected.delete(id);
+      updateDeleteSelBtn();
+      const row = cb.closest('tr');
+      if(row) row.classList.toggle('is-selected', cb.checked);
+      if(selectAllEl) selectAllEl.checked = sorted.length>0 && sorted.every(m=>frSelected.has(m.id));
+    }));
+    deleteSelBtn.addEventListener('click', async ()=>{
+      if(!isAdmin()) return;
+      if(frSelected.size===0) return;
+      if(!confirm(`Delete ${frSelected.size} selected member(s)? This can't be undone.`)) return;
+      const ids = [...frSelected];
+      await sb.from('roster_members').delete().in('id', ids);
+      frSelected.clear();
+      await loadRoster();
+      renderStatStrip();
+      renderFullRosterTab();
+      setStatus('Deleted selected members.', 'ok');
+    });
+  }
 
   $('fr-add-btn').addEventListener('click', async ()=>{
     const mmid=$('fr-mmid').value.trim(), name=$('fr-name').value.trim(), job=$('fr-job').value;
@@ -1693,8 +1701,12 @@ function renderFullRosterTab(){
     }
   });
   document.querySelectorAll('[data-fr-remove]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    if(!isAdmin()) return;
+    const member = roster.find(m=>m.id===btn.dataset.frRemove);
+    if(!confirm(`Delete ${member ? member.name : 'this member'} from the roster? This can't be undone.`)) return;
     await sb.from('roster_members').delete().eq('id', btn.dataset.frRemove);
     await loadRoster(); renderStatStrip(); renderFullRosterTab();
+    setStatus('Member deleted.', 'ok');
   }));
   document.querySelectorAll('[data-fr-field]').forEach(el=>{
     el.addEventListener('change', async ()=>{
@@ -1807,7 +1819,7 @@ function renderLineupsList(){
         <span class="lineup-meta">${placedCount(l.teams)} placed</span>
         <button class="btn ghost small" data-copy-link="${l.share_slug}">Copy Share Link</button>
         <button class="btn ghost small" data-duplicate-lineup="${l.id}">Duplicate</button>
-        <button class="btn danger small" data-delete-lineup="${l.id}">Delete</button>
+        ${isAdmin() ? `<button class="btn danger small" data-delete-lineup="${l.id}">Delete</button>` : ''}
       </div>
     </div>
   `).join('') : '<div class="empty-state">No lineups yet.</div>';
@@ -1820,6 +1832,7 @@ function renderLineupsList(){
   }));
   document.querySelectorAll('[data-duplicate-lineup]').forEach(el=>el.addEventListener('click', ()=>duplicateLineup(el.dataset.duplicateLineup)));
   document.querySelectorAll('[data-delete-lineup]').forEach(el=>el.addEventListener('click', async ()=>{
+    if(!isAdmin()) return;
     if(!confirm("Delete this lineup? This can't be undone.")) return;
     await sb.from('party_lineups').delete().eq('id', el.dataset.deleteLineup);
     await loadLineups(); renderLineupsList();
@@ -1933,7 +1946,7 @@ function renderEditor(){
           <button class="btn gold small" id="copy-share-btn">Copy Share Link</button>
           <button class="btn ghost small" id="renew-link-btn">Renew Link (24h)</button>
           <button class="btn ghost small" id="duplicate-lineup-btn">Duplicate</button>
-          <button class="btn danger small" id="delete-lineup-btn">Delete Lineup</button>
+          ${isAdmin() ? '<button class="btn danger small" id="delete-lineup-btn">Delete Lineup</button>' : ''}
         </div>
         ${linkStatusHtml(l)}
       </div>
@@ -1966,7 +1979,9 @@ function renderEditor(){
     renderEditor();
   });
   $('duplicate-lineup-btn').addEventListener('click', ()=>duplicateLineup(currentLineup.id));
-  $('delete-lineup-btn').addEventListener('click', async ()=>{
+  const deleteLineupBtn = $('delete-lineup-btn');
+  if(deleteLineupBtn) deleteLineupBtn.addEventListener('click', async ()=>{
+    if(!isAdmin()) return;
     if(!confirm("Delete this lineup? This can't be undone.")) return;
     await sb.from('party_lineups').delete().eq('id', currentLineup.id);
     await loadLineups();
