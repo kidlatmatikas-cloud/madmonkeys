@@ -23,6 +23,12 @@ a{color:var(--cyan);}
 .wrap{ max-width:1300px; margin:0 auto; padding:32px 24px 70px; }
 .masthead{ display:flex; align-items:flex-end; justify-content:space-between; gap:16px; padding-bottom:16px; margin-bottom:8px; border-bottom:1px solid var(--line-strong); flex-wrap:wrap; }
 .masthead h1{ font-family:'Orbitron',sans-serif; font-weight:800; letter-spacing:.03em; text-transform:uppercase; font-size:clamp(20px,2.2vw,30px); margin:0; text-shadow:0 0 18px rgba(45,226,255,.25); }
+.masthead-title-input{
+  font-family:'Orbitron',sans-serif; font-weight:800; letter-spacing:.03em; text-transform:uppercase;
+  font-size:clamp(20px,2.2vw,30px); color:var(--ink); background:transparent; border:none; padding:2px 0;
+  text-shadow:0 0 18px rgba(45,226,255,.25); border-bottom:1px dashed transparent; width:auto; max-width:70vw;
+}
+.masthead-title-input:hover, .masthead-title-input:focus{ border-bottom:1px dashed var(--cyan); outline:none; box-shadow:none; }
 .masthead .sub{ font-size:13px; color:var(--ink-soft); letter-spacing:.1em; text-transform:uppercase; font-weight:600; }
 label{ font-size:12.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--ink-soft); display:block; margin-bottom:5px; font-weight:600; }
 input[type=text], input[type=date], input[type=email], input[type=number], select, textarea{
@@ -193,7 +199,7 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
 <div class="wrap">
   <header class="masthead">
     <div>
-      <h1>MADMONKEYS</h1>
+      <input type="text" id="guild-name-input" class="masthead-title-input" value="MADMONKEYS" title="Click to rename your guild — updates everywhere, including guildmates' share links">
       <div class="sub" id="masthead-sub">Officer Dashboard</div>
     </div>
     <button class="btn ghost small hidden" id="signout-btn">Sign Out</button>
@@ -403,7 +409,14 @@ async function boot(){
   const { data: guild } = await sb.from('guild_settings').select('id,name').limit(1).single();
   if(!guild){ setStatus('No guild_settings row found — did you run schema.sql?', 'error'); return; }
   guildId = guild.id;
-  $('masthead-sub').textContent = guild.name + ' — Officer Dashboard';
+  $('guild-name-input').value = guild.name || 'Your Guild';
+  $('masthead-sub').textContent = 'Officer Dashboard';
+  $('guild-name-input').addEventListener('change', async (e)=>{
+    const newName = e.target.value.trim() || 'Your Guild';
+    e.target.value = newName;
+    await sb.from('guild_settings').update({ name: newName }).eq('id', guildId);
+    setStatus('Guild name updated.', 'ok');
+  });
   await Promise.all([loadRoster(), loadLineups(), loadSessions()]);
   renderStatStrip();
   switchTab('overview');
