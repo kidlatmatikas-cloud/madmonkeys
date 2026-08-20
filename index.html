@@ -64,6 +64,11 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
 .hidden{ display:none !important; }
 .chip{ display:inline-flex; align-items:center; gap:7px; background:var(--bg-panel-2); border:1px solid var(--line-strong); border-radius:20px; padding:7px 14px; margin:4px 5px 4px 0; font-size:14px; font-family:'Inter',sans-serif; font-weight:500; }
 .chip button{ background:none; border:none; color:var(--magenta); cursor:pointer; font-size:13px; padding:0; }
+.status-pill{ display:inline-block; padding:2px 10px; border-radius:20px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+.status-pill.status-pending{ background:rgba(220,154,61,.15); color:var(--gold); }
+.status-pill.status-approved{ background:rgba(62,207,142,.15); color:var(--green); }
+.status-pill.status-rejected{ background:rgba(229,83,92,.15); color:var(--magenta); }
+.officer-actions{ display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
 /* team / party editing */
 .team-name-input{ font-family:'Inter',sans-serif; font-weight:700; font-size:19px; letter-spacing:-.005em; background:transparent; border:none; color:var(--cyan); max-width:280px; padding:2px 0; border-bottom:1px dashed transparent; }
 .team-name-input:focus,.team-name-input:hover{ border-bottom:1px dashed var(--cyan); outline:none; }
@@ -223,6 +228,34 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
     </div>
     <button class="btn gold" id="login-btn">Sign In</button>
     <div class="status-line" id="login-status"></div>
+    <p class="section-hint" style="margin-top:18px;">New officer? <a href="#" id="show-signup-link">Request access</a></p>
+  </div>
+
+  <!-- ============ REQUEST ACCESS ============ -->
+  <div id="signup-section" class="hud-panel hidden" style="max-width:420px;">
+    <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+    <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+    <h2 class="section-title">Request Access</h2>
+    <p class="section-hint">Pick a username and password. An admin has to approve your account before you can sign in.</p>
+    <div class="field-row">
+      <div>
+        <label for="signup-username">Username</label>
+        <input type="text" id="signup-username" placeholder="Username" autocomplete="username">
+      </div>
+    </div>
+    <div class="field-row">
+      <div>
+        <label for="signup-password">Password</label>
+        <input type="password" id="signup-password" placeholder="••••••••" autocomplete="new-password">
+      </div>
+      <div>
+        <label for="signup-password-confirm">Confirm password</label>
+        <input type="password" id="signup-password-confirm" placeholder="••••••••" autocomplete="new-password">
+      </div>
+    </div>
+    <button class="btn gold" id="signup-btn">Request Access</button>
+    <button class="btn ghost" id="signup-cancel-btn">Back to Sign In</button>
+    <div class="status-line" id="signup-status"></div>
   </div>
 
   <!-- ============ APP (signed in) ============ -->
@@ -234,6 +267,7 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
       <button class="tab-btn" data-tab="fullroster">Full Roster</button>
       <button class="tab-btn" data-tab="attendance">Attendance</button>
       <button class="tab-btn" data-tab="parties">Party List</button>
+      <button class="tab-btn hidden" data-tab="officers" id="officers-tab-btn">Officers</button>
     </nav>
 
     <div id="overview-tab" class="hud-panel">
@@ -281,6 +315,13 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
       <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
       <span class="corner corner-bl"></span><span class="corner corner-br"></span>
       <div id="editor-content"></div>
+    </div>
+
+    <!-- Officer approvals (admin only) -->
+    <div id="officers-tab" class="hud-panel hidden">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <div id="officers-content"></div>
     </div>
   </div>
 
@@ -363,54 +404,236 @@ let draftOurScore = '';
 let draftOpponentScore = '';
 
 const $ = (id) => document.getElementById(id);
-const TAB_IDS = ['overview','new','log','fullroster','attendance','parties'];
+const TAB_IDS = ['overview','new','log','fullroster','attendance','parties','officers'];
 
 /* ========================= Auth =========================
-   Simple on-page check — NOT a real login system. The username/password
-   below are compared right here in the browser, and whoever's viewing
-   this file's source can see them (and, since the database no longer
-   requires a real Supabase session to write data, could save changes
-   directly even without this box). This trades real security for
-   simplicity, on purpose — see README for the fuller explanation. */
-const OFFICER_USERNAME = 'gucci';
-const OFFICER_PASSWORD = 'Godisgood0723!';
-const AUTH_FLAG_KEY = 'gwl_officer_authed';
+   Officer accounts now live in the `officers` table (see officers_schema.sql).
+   Anyone can request access; an admin has to approve the row before that
+   login will work. This is still NOT real security in the usual sense:
+   the Supabase anon key is public in this page's source, and the RLS
+   policy on `officers` allows that anon key to read and write the table
+   directly — so a technically-inclined person could bypass this UI
+   entirely (approve their own request, read the password hashes, etc.)
+   the same way they always could with the old single shared password.
+   Passwords are hashed (SHA-256 salted with the username) before they're
+   ever sent to Supabase, so a casual look at the table won't show
+   plaintext passwords — but this is not a substitute for real auth if
+   that ever matters for this guild. */
+const AUTH_FLAG_KEY = 'gwl_officer_session';
+let currentOfficer = null; // { id, username, role }
+
+async function hashPassword(username, password){
+  const enc = new TextEncoder();
+  const data = enc.encode(username.trim().toLowerCase() + ':' + password);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function ensureGuildId(){
+  if(guildId) return guildId;
+  const { data: guild } = await sb.from('guild_settings').select('id,name').limit(1).single();
+  if(guild) guildId = guild.id;
+  return guildId;
+}
 
 function showApp(){
   $('login-section').classList.add('hidden');
+  $('signup-section').classList.add('hidden');
   $('app-section').classList.remove('hidden');
   $('signout-btn').classList.remove('hidden');
+  $('officers-tab-btn').classList.toggle('hidden', !(currentOfficer && currentOfficer.role === 'admin'));
   boot();
 }
 function showLogin(){
   $('login-section').classList.remove('hidden');
+  $('signup-section').classList.add('hidden');
   $('app-section').classList.add('hidden');
   $('signout-btn').classList.add('hidden');
 }
-$('login-btn').addEventListener('click', () => {
+function showSignup(){
+  $('login-section').classList.add('hidden');
+  $('signup-section').classList.remove('hidden');
+  $('signup-status').className = 'status-line';
+  $('signup-status').textContent = '';
+}
+
+async function doLogin(){
   const username = $('login-username').value.trim();
   const password = $('login-password').value;
-  if(username === OFFICER_USERNAME && password === OFFICER_PASSWORD){
-    localStorage.setItem(AUTH_FLAG_KEY, '1');
-    $('login-status').textContent = '';
-    showApp();
-  } else {
-    $('login-status').className = 'status-line error';
-    $('login-status').textContent = 'Wrong username or password.';
+  const statusEl = $('login-status');
+  statusEl.className = 'status-line';
+  statusEl.textContent = '';
+  if(!username || !password){
+    statusEl.className = 'status-line error';
+    statusEl.textContent = 'Enter a username and password.';
+    return;
   }
+  await ensureGuildId();
+  const { data: row } = await sb.from('officers')
+    .select('id,username,password_hash,role,status')
+    .eq('guild_id', guildId)
+    .ilike('username', username)
+    .maybeSingle();
+  if(!row){
+    statusEl.className = 'status-line error';
+    statusEl.textContent = 'Wrong username or password.';
+    return;
+  }
+  const hash = await hashPassword(row.username, password);
+  if(hash !== row.password_hash){
+    statusEl.className = 'status-line error';
+    statusEl.textContent = 'Wrong username or password.';
+    return;
+  }
+  if(row.status === 'pending'){
+    statusEl.textContent = 'Your account is still waiting on admin approval.';
+    return;
+  }
+  if(row.status === 'rejected'){
+    statusEl.className = 'status-line error';
+    statusEl.textContent = 'Your access request was denied. Contact your guild admin.';
+    return;
+  }
+  currentOfficer = { id: row.id, username: row.username, role: row.role };
+  localStorage.setItem(AUTH_FLAG_KEY, JSON.stringify(currentOfficer));
+  statusEl.textContent = '';
+  showApp();
+}
+$('login-btn').addEventListener('click', doLogin);
+$('login-password').addEventListener('keydown', (e)=>{ if(e.key==='Enter') doLogin(); });
+
+$('show-signup-link').addEventListener('click', (e)=>{ e.preventDefault(); showSignup(); });
+$('signup-cancel-btn').addEventListener('click', showLogin);
+$('signup-btn').addEventListener('click', async () => {
+  const username = $('signup-username').value.trim();
+  const password = $('signup-password').value;
+  const confirmPw = $('signup-password-confirm').value;
+  const statusEl = $('signup-status');
+  statusEl.className = 'status-line';
+  if(!username || !password){
+    statusEl.className = 'status-line error';
+    statusEl.textContent = 'Enter a username and password.';
+    return;
+  }
+  if(password.length < 6){
+    statusEl.className = 'status-line error';
+    statusEl.textContent = 'Password should be at least 6 characters.';
+    return;
+  }
+  if(password !== confirmPw){
+    statusEl.className = 'status-line error';
+    statusEl.textContent = "Passwords don't match.";
+    return;
+  }
+  await ensureGuildId();
+  if(!guildId){
+    statusEl.className = 'status-line error';
+    statusEl.textContent = 'Could not reach the guild database — try again in a moment.';
+    return;
+  }
+  const password_hash = await hashPassword(username, password);
+  const { error } = await sb.from('officers').insert({ guild_id: guildId, username, password_hash, role: 'officer', status: 'pending' });
+  if(error){
+    statusEl.className = 'status-line error';
+    statusEl.textContent = error.code === '23505' ? 'That username is already taken.' : 'Could not submit your request — try again.';
+    return;
+  }
+  $('signup-username').value = '';
+  $('signup-password').value = '';
+  $('signup-password-confirm').value = '';
+  showLogin();
+  $('login-status').className = 'status-line ok';
+  $('login-status').textContent = 'Request submitted — an admin needs to approve you before you can sign in.';
 });
-$('login-password').addEventListener('keydown', (e)=>{ if(e.key==='Enter') $('login-btn').click(); });
+$('signup-password-confirm').addEventListener('keydown', (e)=>{ if(e.key==='Enter') $('signup-btn').click(); });
+
 $('signout-btn').addEventListener('click', () => {
   localStorage.removeItem(AUTH_FLAG_KEY);
+  currentOfficer = null;
   showLogin();
 });
 
+/* ========================= Officer approvals (admin tab) ========================= */
+function officerActionButtons(o){
+  const btns = [];
+  if(o.status === 'pending'){
+    btns.push(`<button class="btn small" data-officer-action="approve" data-officer-id="${o.id}">Approve</button>`);
+    btns.push(`<button class="btn ghost small" data-officer-action="reject" data-officer-id="${o.id}">Reject</button>`);
+  } else if(o.status === 'approved'){
+    if(o.id !== currentOfficer.id){
+      btns.push(`<button class="btn ghost small" data-officer-action="revoke" data-officer-id="${o.id}">Revoke</button>`);
+      btns.push(o.role === 'admin'
+        ? `<button class="btn ghost small" data-officer-action="demote" data-officer-id="${o.id}">Remove Admin</button>`
+        : `<button class="btn ghost small" data-officer-action="promote" data-officer-id="${o.id}">Make Admin</button>`);
+    }
+  } else if(o.status === 'rejected'){
+    btns.push(`<button class="btn small" data-officer-action="approve" data-officer-id="${o.id}">Approve</button>`);
+    btns.push(`<button class="btn danger small" data-officer-action="delete" data-officer-id="${o.id}">Delete</button>`);
+  }
+  return btns.join(' ');
+}
+async function renderOfficersTab(){
+  const el = $('officers-content');
+  el.innerHTML = '<div class="status-line">Loading…</div>';
+  const { data, error } = await sb.from('officers').select('id,username,role,status,created_at').eq('guild_id', guildId);
+  if(error){
+    el.innerHTML = '<div class="empty-state">Could not load officer accounts.</div>';
+    return;
+  }
+  const statusOrder = { pending: 0, approved: 1, rejected: 2 };
+  const list = (data || []).sort((a,b) => (statusOrder[a.status]-statusOrder[b.status]) || (b.created_at||'').localeCompare(a.created_at||''));
+  const pendingCount = list.filter(o => o.status === 'pending').length;
+  el.innerHTML = `
+    <h2 class="section-title">Officers</h2>
+    <p class="section-hint">${pendingCount ? `${pendingCount} request${pendingCount===1?'':'s'} waiting on you.` : 'Approve new officer sign-ins, or manage existing access.'}</p>
+    ${list.length ? `
+    <table class="responsive">
+      <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Requested</th><th></th></tr></thead>
+      <tbody>${list.map(o => `
+        <tr>
+          <td data-label="Username">${escapeHtml(o.username)}${o.id===currentOfficer.id ? ' (you)' : ''}</td>
+          <td data-label="Role">${o.role === 'admin' ? 'Admin' : 'Officer'}</td>
+          <td data-label="Status"><span class="status-pill status-${o.status}">${o.status}</span></td>
+          <td data-label="Requested">${o.created_at ? o.created_at.slice(0,10) : '—'}</td>
+          <td data-label="" class="officer-actions">${officerActionButtons(o)}</td>
+        </tr>
+      `).join('')}</tbody>
+    </table>` : '<div class="empty-state">No officer accounts yet.</div>'}
+  `;
+  el.querySelectorAll('[data-officer-action]').forEach(btn => {
+    btn.addEventListener('click', () => handleOfficerAction(btn.dataset.officerAction, btn.dataset.officerId));
+  });
+}
+async function handleOfficerAction(action, id){
+  if(action === 'approve') await sb.from('officers').update({ status: 'approved' }).eq('id', id);
+  else if(action === 'reject' || action === 'revoke') await sb.from('officers').update({ status: 'rejected' }).eq('id', id);
+  else if(action === 'promote') await sb.from('officers').update({ role: 'admin' }).eq('id', id);
+  else if(action === 'demote') await sb.from('officers').update({ role: 'officer' }).eq('id', id);
+  else if(action === 'delete'){
+    if(!confirm('Delete this officer account? This cannot be undone.')) return;
+    await sb.from('officers').delete().eq('id', id);
+  }
+  setStatus('Updated.', 'ok');
+  renderOfficersTab();
+}
+
 /* ========================= Boot ========================= */
 async function boot(){
-  const { data: guild } = await sb.from('guild_settings').select('id,name').limit(1).single();
-  if(!guild){ setStatus('No guild_settings row found — did you run schema.sql?', 'error'); return; }
-  guildId = guild.id;
-  $('guild-name-input').value = guild.name || 'Your Guild';
+  await ensureGuildId();
+  if(!guildId){ setStatus('No guild_settings row found — did you run schema.sql?', 'error'); return; }
+  if(currentOfficer){
+    const { data: me } = await sb.from('officers').select('status,role').eq('id', currentOfficer.id).maybeSingle();
+    if(!me || me.status !== 'approved'){
+      localStorage.removeItem(AUTH_FLAG_KEY);
+      currentOfficer = null;
+      showLogin();
+      setStatus('Your access is no longer approved. Contact your guild admin.', 'error');
+      return;
+    }
+    currentOfficer.role = me.role;
+    $('officers-tab-btn').classList.toggle('hidden', currentOfficer.role !== 'admin');
+  }
+  const { data: guild } = await sb.from('guild_settings').select('id,name').eq('id', guildId).single();
+  $('guild-name-input').value = (guild && guild.name) || 'Your Guild';
   $('masthead-sub').textContent = 'Officer Dashboard';
   $('guild-name-input').addEventListener('change', async (e)=>{
     const newName = e.target.value.trim() || 'Your Guild';
@@ -450,6 +673,7 @@ function switchTab(tab){
   else if(tab==='fullroster') renderFullRosterTab();
   else if(tab==='attendance') renderAttendanceTab();
   else if(tab==='parties') renderLineupsList();
+  else if(tab==='officers') renderOfficersTab();
 }
 document.querySelectorAll('.tab-btn').forEach(btn=>btn.addEventListener('click', ()=>switchTab(btn.dataset.tab)));
 
@@ -530,7 +754,7 @@ function computeMvpCounts(){
   }));
   return counts;
 }
-function blankMember(name){ return { name, id:null, mmid:'', job:'', sessions:0, tablets:0, monsters:0, trueTablets:0, trueMonsterKills:0, kills:0, assists:0, deaths:0, eliteDeaths:0, subDeaths:0, scoreSum:0, best:0 }; }
+function blankMember(name){ return { name, id:null, mmid:'', job:'', sessions:0, tablets:0, monsters:0, trueTablets:0, trueMonsterKills:0, kills:0, assists:0, deaths:0, eliteDeaths:0, subDeaths:0, eliteSessions:0, subSessions:0, scoreSum:0, best:0 }; }
 function computeRosterStats(){
   // Attendance is based on unique WAR DAYS, not raw saved records — if you
   // upload Elite and Sub scoreboards as two separate saves for the same
@@ -540,6 +764,7 @@ function computeRosterStats(){
   const map = {};
   roster.forEach(m=>{ map[m.name]=blankMember(m.name); map[m.name].id=m.id; map[m.name].mmid=m.mmid||''; map[m.name].job=m.job||''; });
   const attendedDates = {}; // name -> Set of dates they appeared on
+  const attendedDatesElite = {}, attendedDatesSub = {};
   sessions.forEach(s=>(s.entries||[]).forEach(r=>{
     if(!map[r.name]) map[r.name]=blankMember(r.name);
     const m=map[r.name];
@@ -551,15 +776,24 @@ function computeRosterStats(){
     // records, and a true "monster kills" total has to combine Elite's
     // Monsters column with Sub's (mislabeled) Tablets column, since
     // that's actually where Sub's monster-kill count lives.
-    if(s.role==='Elite'){ m.trueTablets+=r.tablets; m.trueMonsterKills+=r.monsters; m.eliteDeaths+=r.deaths; }
-    else if(s.role==='Sub'){ m.trueMonsterKills+=r.tablets; m.subDeaths+=r.deaths; }
+    if(s.role==='Elite'){
+      m.trueTablets+=r.tablets; m.trueMonsterKills+=r.monsters; m.eliteDeaths+=r.deaths;
+      if(!attendedDatesElite[r.name]) attendedDatesElite[r.name] = new Set();
+      if(s.date) attendedDatesElite[r.name].add(s.date);
+    } else if(s.role==='Sub'){
+      m.trueMonsterKills+=r.tablets; m.subDeaths+=r.deaths;
+      if(!attendedDatesSub[r.name]) attendedDatesSub[r.name] = new Set();
+      if(s.date) attendedDatesSub[r.name].add(s.date);
+    }
     m.scoreSum+=r.score; if(r.score>m.best) m.best=r.score;
     if(!attendedDates[r.name]) attendedDates[r.name] = new Set();
     if(s.date) attendedDates[r.name].add(s.date);
   }));
   return Object.values(map).map(m=>{
     const daysAttended = (attendedDates[m.name] || new Set()).size;
-    return { ...m, sessions: daysAttended, attendance: totalDays?(daysAttended/totalDays*100):0, avgScore: daysAttended?(m.scoreSum/daysAttended):0 };
+    const eliteSessions = (attendedDatesElite[m.name] || new Set()).size;
+    const subSessions = (attendedDatesSub[m.name] || new Set()).size;
+    return { ...m, sessions: daysAttended, eliteSessions, subSessions, attendance: totalDays?(daysAttended/totalDays*100):0, avgScore: daysAttended?(m.scoreSum/daysAttended):0 };
   });
 }
 
@@ -603,6 +837,7 @@ function renderOverviewTab(){
   const topKills = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.kills-a.kills).slice(0,5);
   const topDeathsElite = rosterStats.filter(m=>m.eliteDeaths>0).sort((a,b)=>b.eliteDeaths-a.eliteDeaths).slice(0,5);
   const topDeathsSub = rosterStats.filter(m=>m.subDeaths>0).sort((a,b)=>b.subDeaths-a.subDeaths).slice(0,5);
+  const lowestDeaths = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>a.deaths-b.deaths).slice(0,10);
   const topAssists = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.assists-a.assists).slice(0,5);
   const topTablets = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.trueTablets-a.trueTablets).slice(0,5);
   const topMonsterKills = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.trueMonsterKills-a.trueMonsterKills).slice(0,5);
@@ -681,6 +916,7 @@ function renderOverviewTab(){
       ${dashPanel('top-kills', 'Top Kills', topKills.length ? topKills.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.kills}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
       ${dashPanel('top-deaths-elite', 'Top Deaths — Elite', topDeathsElite.length ? topDeathsElite.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value" style="color:var(--magenta);">${m.eliteDeaths}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No Elite sessions yet.</div>', hiddenPanels)}
       ${dashPanel('top-deaths-sub', 'Top Deaths — Sub', topDeathsSub.length ? topDeathsSub.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value" style="color:var(--magenta);">${m.subDeaths}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No Sub sessions yet.</div>', hiddenPanels)}
+      ${dashPanel('lowest-deaths', 'Lowest Deaths', lowestDeaths.length ? lowestDeaths.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value" style="color:var(--green);">${m.deaths}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
       ${dashPanel('top-assists', 'Top Assists', topAssists.length ? topAssists.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.assists}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
       ${dashPanel('top-tablets', 'Top Tablets Taken', topTablets.length ? topTablets.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.trueTablets}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No Elite sessions yet.</div>', hiddenPanels)}
       ${dashPanel('top-monster-kills', 'Top Monster Kills', topMonsterKills.length ? topMonsterKills.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.trueMonsterKills}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
@@ -1839,11 +2075,16 @@ $('assign-popover').addEventListener('click', (e)=>{ if(e.target.id==='assign-po
 document.addEventListener('keydown', e=>{ if(e.key==='Escape' && picker) closePicker(); });
 
 /* ========================= Init ========================= */
-if(localStorage.getItem(AUTH_FLAG_KEY) === '1'){
-  showApp();
-} else {
-  $('login-section').classList.remove('hidden');
-}
+(function initAuth(){
+  let saved = null;
+  try{ saved = JSON.parse(localStorage.getItem(AUTH_FLAG_KEY) || 'null'); }catch(e){ saved = null; }
+  if(saved && saved.id && saved.username){
+    currentOfficer = saved;
+    showApp(); // boot() re-checks approval status against the database
+  } else {
+    $('login-section').classList.remove('hidden');
+  }
+})();
 </script>
 </body>
 </html>
