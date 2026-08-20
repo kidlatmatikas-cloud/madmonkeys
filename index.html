@@ -530,7 +530,7 @@ function computeMvpCounts(){
   }));
   return counts;
 }
-function blankMember(name){ return { name, id:null, mmid:'', job:'', sessions:0, tablets:0, monsters:0, kills:0, assists:0, deaths:0, scoreSum:0, best:0 }; }
+function blankMember(name){ return { name, id:null, mmid:'', job:'', sessions:0, tablets:0, monsters:0, trueTablets:0, trueMonsterKills:0, kills:0, assists:0, deaths:0, scoreSum:0, best:0 }; }
 function computeRosterStats(){
   // Attendance is based on unique WAR DAYS, not raw saved records — if you
   // upload Elite and Sub scoreboards as two separate saves for the same
@@ -544,6 +544,15 @@ function computeRosterStats(){
     if(!map[r.name]) map[r.name]=blankMember(r.name);
     const m=map[r.name];
     m.tablets+=r.tablets; m.monsters+=r.monsters; m.kills+=r.kills; m.assists+=r.assists; m.deaths+=r.deaths;
+    // The "tablets" and "monsters" columns are scanned straight off the
+    // scoreboard, but the scoreboard means something different per role:
+    // Elite shows Tablets Captured / Monsters, Sub shows Monster / Boss.
+    // So a true "tablets captured" total only makes sense from Elite
+    // records, and a true "monster kills" total has to combine Elite's
+    // Monsters column with Sub's (mislabeled) Tablets column, since
+    // that's actually where Sub's monster-kill count lives.
+    if(s.role==='Elite'){ m.trueTablets+=r.tablets; m.trueMonsterKills+=r.monsters; }
+    else if(s.role==='Sub'){ m.trueMonsterKills+=r.tablets; }
     m.scoreSum+=r.score; if(r.score>m.best) m.best=r.score;
     if(!attendedDates[r.name]) attendedDates[r.name] = new Set();
     if(s.date) attendedDates[r.name].add(s.date);
@@ -593,7 +602,8 @@ function renderOverviewTab(){
   const topHighPriest = rosterStats.filter(m=>m.sessions>0 && m.job==='High Priest').sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
   const topKills = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.kills-a.kills).slice(0,5);
   const topAssists = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.assists-a.assists).slice(0,5);
-  const topTablets = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.tablets-a.tablets).slice(0,5);
+  const topTablets = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.trueTablets-a.trueTablets).slice(0,5);
+  const topMonsterKills = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.trueMonsterKills-a.trueMonsterKills).slice(0,5);
   const topMvp = Object.entries(mvpCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
   const topAttendance = sessions.length ? [...rosterStats].sort((a,b)=>b.attendance-a.attendance).slice(0,5) : [];
   const jobCounts = {};
@@ -668,7 +678,8 @@ function renderOverviewTab(){
       ${dashPanel('best-attendance', 'Best Attendance', topAttendance.length ? topAttendance.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.attendance.toFixed(0)}%</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
       ${dashPanel('top-kills', 'Top Kills', topKills.length ? topKills.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.kills}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
       ${dashPanel('top-assists', 'Top Assists', topAssists.length ? topAssists.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.assists}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
-      ${dashPanel('top-tablets', 'Top Tablets Taken', topTablets.length ? topTablets.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.tablets}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
+      ${dashPanel('top-tablets', 'Top Tablets Taken', topTablets.length ? topTablets.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.trueTablets}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No Elite sessions yet.</div>', hiddenPanels)}
+      ${dashPanel('top-monster-kills', 'Top Monster Kills', topMonsterKills.length ? topMonsterKills.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.trueMonsterKills}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
       ${dashPanel('absent-today', `Absent — ${latestDay ? escapeHtml(latestDay.date||'') : 'Latest Day'}`, !latestDay ? '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>' : roster.length===0 ? '<div class="empty-state" style="padding:14px 4px;">Add your roster to track this.</div>' : absentToday.length===0 ? '<div class="empty-state" style="padding:14px 4px;">Everyone showed up.</div>' : `<div>${absentToday.map(m=>`<span class="chip" style="border-color:var(--magenta); color:var(--magenta);">${escapeHtml(m.name)}${m.job?' · '+escapeHtml(m.job):''}</span>`).join('')}</div>`, hiddenPanels)}
       ${dashPanel('class-balance', 'Class Balance', jobList.length ? jobList.map(([job,count])=>`
           <div class="job-bar-row">
@@ -1464,7 +1475,7 @@ function renderAttendanceTab(){
     {key:'name',label:'Name'},{key:'job',label:'Job'},{key:'sessions',label:'Sessions',num:true},{key:'attendance',label:'Attend %',num:true},
     {key:'avgScore',label:'Avg Score',num:true},{key:'best',label:'Best',num:true},
     {key:'kills',label:'Kills',num:true},{key:'assists',label:'Assists',num:true},{key:'deaths',label:'Deaths',num:true},
-    {key:'tablets',label:'Tablets',num:true},{key:'monsters',label:'Monsters',num:true}
+    {key:'trueTablets',label:'Tablets',num:true},{key:'trueMonsterKills',label:'Monster Kills',num:true}
   ];
   $('attendance-content').innerHTML = `
     <h2 class="section-title">Attendance</h2>
@@ -1487,8 +1498,8 @@ function renderAttendanceTab(){
           <td class="num" data-label="Kills">${m.kills}</td>
           <td class="num" data-label="Assists">${m.assists}</td>
           <td class="num" data-label="Deaths">${m.deaths}</td>
-          <td class="num" data-label="Tablets">${m.tablets}</td>
-          <td class="num" data-label="Monsters">${m.monsters}</td>
+          <td class="num" data-label="Tablets">${m.trueTablets}</td>
+          <td class="num" data-label="Monster Kills">${m.trueMonsterKills}</td>
         </tr>`;
       }).join('')}</tbody>
     </table>`}
