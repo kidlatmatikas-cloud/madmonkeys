@@ -463,9 +463,44 @@ async function loadSessions(){
 }
 
 /* ========================= Compute helpers ========================= */
+// Merges same-date session records (e.g. Elite + Sub uploaded separately)
+// into one "war day" summary — used anywhere Overview reports on
+// sessions/results, so the count and outcome reflect actual war days,
+// not raw saved uploads. (Session Log intentionally still shows every
+// individual saved record — this only affects the Overview summary.)
+function getSessionDays(){
+  const byDate = {};
+  sessions.forEach(s=>{
+    const d = s.date || '';
+    if(!byDate[d]) byDate[d] = [];
+    byDate[d].push(s);
+  });
+  return Object.keys(byDate).map(d=>{
+    const records = [...byDate[d]].sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||'')));
+    const eventNames = [...new Set(records.map(r=>r.event_name).filter(Boolean))];
+    const roles = [...new Set(records.map(r=>r.role).filter(Boolean))];
+    const opponents = [...new Set(records.map(r=>r.opposing_guild).filter(Boolean))];
+    let our_score = null, opponent_score = null;
+    for(const r of records){
+      if((r.our_score!==null && r.our_score!==undefined) || (r.opponent_score!==null && r.opponent_score!==undefined)){
+        our_score = r.our_score; opponent_score = r.opponent_score; break;
+      }
+    }
+    return {
+      date: d,
+      event_name: eventNames[0] || 'WoE',
+      role: roles.join(' + '),
+      opposing_guild: opponents[0] || '',
+      our_score, opponent_score,
+      entries: records.flatMap(r=>r.entries||[]),
+      recordIds: records.map(r=>r.id),
+      recordCount: records.length,
+    };
+  });
+}
 function computeSessionRecord(){
   let wins=0, losses=0, ties=0, scored=0;
-  sessions.forEach(s=>{
+  getSessionDays().forEach(s=>{
     const hasOur = s.our_score!==null && s.our_score!==undefined;
     const hasOpp = s.opponent_score!==null && s.opponent_score!==undefined;
     if(hasOur || hasOpp){
@@ -524,6 +559,7 @@ function renderOverviewTab(){
   const winRate = record.scored ? Math.round(record.wins/record.scored*100) : null;
   const rosterStats = computeRosterStats();
   const mvpCounts = computeMvpCounts();
+  const sessionDays = getSessionDays();
   const topAvg = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
   const topMvp = Object.entries(mvpCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
   const topAttendance = sessions.length ? [...rosterStats].sort((a,b)=>b.attendance-a.attendance).slice(0,5) : [];
@@ -531,13 +567,13 @@ function renderOverviewTab(){
   roster.forEach(m=>{ if(m.job) jobCounts[m.job]=(jobCounts[m.job]||0)+1; });
   const jobList = Object.entries(jobCounts).sort((a,b)=>b[1]-a[1]);
   const maxJobCount = jobList.length ? jobList[0][1] : 1;
-  const recentSessions = [...sessions].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,5);
+  const recentSessions = [...sessionDays].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,5);
 
   $('overview-content').innerHTML = `
     <h2 class="section-title">Overview</h2>
-    <p class="section-hint">Guild performance at a glance — record, top performers, attendance, and class balance.</p>
+    <p class="section-hint">Guild performance at a glance — record, top performers, attendance, and class balance. Records saved on the same date (e.g. Elite and Sub uploaded separately) count as one war day throughout.</p>
     <div class="stat-card-grid">
-      <div class="stat-card"><div class="stat-value">${sessions.length}</div><div class="stat-label">Sessions Recorded</div></div>
+      <div class="stat-card"><div class="stat-value">${sessionDays.length}</div><div class="stat-label">Sessions Recorded</div></div>
       <div class="stat-card"><div class="stat-value">${roster.length}</div><div class="stat-label">Guildmates</div></div>
       <div class="stat-card"><div class="stat-value">${record.scored ? `${record.wins}-${record.losses}${record.ties?'-'+record.ties:''}` : '—'}</div><div class="stat-label">Win – Loss${record.ties?' – Tie':''}</div></div>
       <div class="stat-card"><div class="stat-value">${winRate!==null ? winRate+'%' : '—'}</div><div class="stat-label">Win Rate</div></div>
@@ -548,7 +584,7 @@ function renderOverviewTab(){
         ${recentSessions.length ? recentSessions.map(s=>{
           const outcome = sessionOutcome(s);
           const cls = outcome==='WIN'?'attn-high':(outcome==='LOSS'?'attn-low':'attn-mid');
-          return `<div class="recent-row" data-jump-session="${s.id}">
+          return `<div class="recent-row" data-jump-session="${s.recordIds[0]}">
             <div>
               <div class="recent-row-title">${escapeHtml(s.event_name)}${s.opposing_guild?' vs '+escapeHtml(s.opposing_guild):''}</div>
               <div class="recent-row-meta">${s.date||''}${s.role?' · '+escapeHtml(s.role):''}</div>
