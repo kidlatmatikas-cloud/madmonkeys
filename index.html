@@ -114,7 +114,11 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
 .stat-card .stat-value{ font-family:'Inter',sans-serif; font-size:23px; font-weight:700; line-height:1.15; }
 .stat-card .stat-label{ font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-soft); margin-top:5px; font-weight:600; }
 .dash-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:18px; }
-.dash-panel{ border:1px solid var(--line); background:rgba(255,255,255,.015); border-radius:9px; padding:16px; }
+.dash-panel{ position:relative; border:1px solid var(--line); background:rgba(255,255,255,.015); border-radius:9px; padding:16px; }
+.dash-panel-close{ position:absolute; top:10px; right:10px; background:none; border:none; color:var(--ink-faint); cursor:pointer; font-size:13px; line-height:1; padding:4px; border-radius:4px; }
+.dash-panel-close:hover{ color:var(--magenta); background:rgba(229,83,92,.1); }
+.show-hidden-panels{ font-size:12.5px; color:var(--ink-soft); cursor:pointer; text-decoration:underline; text-underline-offset:2px; margin-bottom:14px; display:inline-block; }
+.show-hidden-panels:hover{ color:var(--cyan); }
 .dash-panel h3{ font-family:'Inter',sans-serif; font-size:12px; margin:0 0 12px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.05em; font-weight:700; }
 .lb-row{ display:flex; align-items:center; gap:9px; padding:6px 0; border-bottom:1px solid var(--line); font-size:13.5px; }
 .lb-row:last-child{ border-bottom:none; }
@@ -551,6 +555,30 @@ function computeRosterStats(){
 }
 
 /* ========================= Overview ========================= */
+/* Panel visibility — a personal per-browser preference (localStorage),
+   not shared guild data, so hiding a panel only affects your own view. */
+const HIDDEN_PANELS_KEY = 'gwl_hidden_overview_panels';
+function getHiddenPanels(){
+  try{ return new Set(JSON.parse(localStorage.getItem(HIDDEN_PANELS_KEY)||'[]')); }catch(e){ return new Set(); }
+}
+function hidePanel(key){
+  const hidden = getHiddenPanels();
+  hidden.add(key);
+  localStorage.setItem(HIDDEN_PANELS_KEY, JSON.stringify([...hidden]));
+  renderOverviewTab();
+}
+function showAllPanels(){
+  localStorage.removeItem(HIDDEN_PANELS_KEY);
+  renderOverviewTab();
+}
+function dashPanel(key, title, bodyHtml, hidden){
+  if(hidden.has(key)) return '';
+  return `<div class="dash-panel" data-panel-key="${key}">
+    <button class="dash-panel-close" data-hide-panel="${key}" title="Hide this panel">✕</button>
+    <h3>${title}</h3>
+    ${bodyHtml}
+  </div>`;
+}
 function renderOverviewTab(){
   if(sessions.length===0 && roster.length===0){
     $('overview-content').innerHTML = '<h2 class="section-title">Overview</h2><p class="section-hint">Guild performance at a glance.</p><div class="empty-state">Nothing recorded yet. Add your roster in Full Roster or record a session in New Record to get started.</div>';
@@ -563,6 +591,9 @@ function renderOverviewTab(){
   const sessionDays = getSessionDays();
   const topAvg = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
   const topHighPriest = rosterStats.filter(m=>m.sessions>0 && m.job==='High Priest').sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
+  const topKills = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.kills-a.kills).slice(0,5);
+  const topAssists = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.assists-a.assists).slice(0,5);
+  const topTablets = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.tablets-a.tablets).slice(0,5);
   const topMvp = Object.entries(mvpCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
   const topAttendance = sessions.length ? [...rosterStats].sort((a,b)=>b.attendance-a.attendance).slice(0,5) : [];
   const jobCounts = {};
@@ -570,6 +601,38 @@ function renderOverviewTab(){
   const jobList = Object.entries(jobCounts).sort((a,b)=>b[1]-a[1]);
   const maxJobCount = jobList.length ? jobList[0][1] : 1;
   const recentSessions = [...sessionDays].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,5);
+  const latestDay = recentSessions[0] || null;
+  const absentToday = latestDay ? roster.filter(m=>!latestDay.entries.some(e=>e.name===m.name)) : [];
+
+  const hiddenPanels = getHiddenPanels();
+
+  // Elite vs Sub kills/assists/deaths report
+  const killsByDay = [...sessionDays].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(day=>{
+    const eliteE = day.entries.filter(e=>e._role==='Elite');
+    const subE = day.entries.filter(e=>e._role==='Sub');
+    return {
+      date: day.date, opposing_guild: day.opposing_guild,
+      eliteKills: eliteE.reduce((s,e)=>s+e.kills,0),
+      subKills: subE.reduce((s,e)=>s+e.kills,0),
+      eliteAssists: eliteE.reduce((s,e)=>s+e.assists,0),
+      subAssists: subE.reduce((s,e)=>s+e.assists,0),
+      eliteDeaths: eliteE.reduce((s,e)=>s+e.deaths,0),
+      subDeaths: subE.reduce((s,e)=>s+e.deaths,0),
+    };
+  });
+  const totalEliteKills = killsByDay.reduce((s,d)=>s+d.eliteKills,0);
+  const totalSubKills = killsByDay.reduce((s,d)=>s+d.subKills,0);
+  const totalEliteAssists = killsByDay.reduce((s,d)=>s+d.eliteAssists,0);
+  const totalSubAssists = killsByDay.reduce((s,d)=>s+d.subAssists,0);
+  const totalEliteDeaths = killsByDay.reduce((s,d)=>s+d.eliteDeaths,0);
+  const totalSubDeaths = killsByDay.reduce((s,d)=>s+d.subDeaths,0);
+  const eliteSessionCounts = {}, subSessionCounts = {};
+  sessionDays.forEach(day=>{
+    new Set(day.entries.filter(e=>e._role==='Elite').map(e=>e.name)).forEach(n=>{ eliteSessionCounts[n]=(eliteSessionCounts[n]||0)+1; });
+    new Set(day.entries.filter(e=>e._role==='Sub').map(e=>e.name)).forEach(n=>{ subSessionCounts[n]=(subSessionCounts[n]||0)+1; });
+  });
+  const eliteRoster = Object.entries(eliteSessionCounts).sort((a,b)=>b[1]-a[1]);
+  const subRoster = Object.entries(subSessionCounts).sort((a,b)=>b[1]-a[1]);
 
   $('overview-content').innerHTML = `
     <h2 class="section-title">Overview</h2>
@@ -580,10 +643,9 @@ function renderOverviewTab(){
       <div class="stat-card"><div class="stat-value">${record.scored ? `${record.wins}-${record.losses}${record.ties?'-'+record.ties:''}` : '—'}</div><div class="stat-label">Win – Loss${record.ties?' – Tie':''}</div></div>
       <div class="stat-card"><div class="stat-value">${winRate!==null ? winRate+'%' : '—'}</div><div class="stat-label">Win Rate</div></div>
     </div>
+    ${hiddenPanels.size ? `<span class="show-hidden-panels" id="show-hidden-panels">${hiddenPanels.size} panel${hiddenPanels.size===1?'':'s'} hidden — Show all</span>` : ''}
     <div class="dash-grid">
-      <div class="dash-panel">
-        <h3>Recent Sessions</h3>
-        ${recentSessions.length ? recentSessions.map(s=>{
+      ${dashPanel('recent-sessions', 'Recent Sessions', recentSessions.length ? recentSessions.map(s=>{
           const outcome = sessionOutcome(s);
           const cls = outcome==='WIN'?'attn-high':(outcome==='LOSS'?'attn-low':'attn-mid');
           return `<div class="recent-row" data-jump-session="${s.recordIds[0]}">
@@ -596,40 +658,82 @@ function renderOverviewTab(){
               <button class="btn ghost small" data-discord-day="${s.date}" title="Post this war's report to Discord" style="padding:4px 9px; font-size:11px;">Post</button>
             </div>
           </div>`;
-        }).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>'}
-      </div>
-      <div class="dash-panel">
-        <h3>Top Average Score</h3>
-        ${topAvg.length ? topAvg.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.avgScore.toFixed(0)}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No scored sessions yet.</div>'}
-      </div>
-      <div class="dash-panel">
-        <h3>Top High Priest</h3>
-        ${topHighPriest.length ? topHighPriest.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.avgScore.toFixed(0)}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No High Priest sessions yet.</div>'}
-      </div>
-      <div class="dash-panel">
-        <h3>Most MVPs</h3>
-        ${topMvp.length ? topMvp.map(([name,count],i)=>{
+        }).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
+      ${dashPanel('top-avg-score', 'Top Average Score', topAvg.length ? topAvg.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.avgScore.toFixed(0)}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No scored sessions yet.</div>', hiddenPanels)}
+      ${dashPanel('top-high-priest', 'Top High Priest', topHighPriest.length ? topHighPriest.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.avgScore.toFixed(0)}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No High Priest sessions yet.</div>', hiddenPanels)}
+      ${dashPanel('most-mvps', 'Most MVPs', topMvp.length ? topMvp.map(([name,count],i)=>{
           const job=(roster.find(m=>m.name===name)||{}).job||'';
           return `<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(job)}<span class="lb-name">${escapeHtml(name)}</span><span class="lb-value">${count}</span></div>`;
-        }).join('') : '<div class="empty-state" style="padding:14px 4px;">No MVPs recorded yet.</div>'}
-      </div>
-      <div class="dash-panel">
-        <h3>Best Attendance</h3>
-        ${topAttendance.length ? topAttendance.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.attendance.toFixed(0)}%</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>'}
-      </div>
-      <div class="dash-panel">
-        <h3>Class Balance</h3>
-        ${jobList.length ? jobList.map(([job,count])=>`
+        }).join('') : '<div class="empty-state" style="padding:14px 4px;">No MVPs recorded yet.</div>', hiddenPanels)}
+      ${dashPanel('best-attendance', 'Best Attendance', topAttendance.length ? topAttendance.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.attendance.toFixed(0)}%</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
+      ${dashPanel('top-kills', 'Top Kills', topKills.length ? topKills.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.kills}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
+      ${dashPanel('top-assists', 'Top Assists', topAssists.length ? topAssists.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.assists}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
+      ${dashPanel('top-tablets', 'Top Tablets Taken', topTablets.length ? topTablets.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.tablets}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
+      ${dashPanel('absent-today', `Absent — ${latestDay ? escapeHtml(latestDay.date||'') : 'Latest Day'}`, !latestDay ? '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>' : roster.length===0 ? '<div class="empty-state" style="padding:14px 4px;">Add your roster to track this.</div>' : absentToday.length===0 ? '<div class="empty-state" style="padding:14px 4px;">Everyone showed up.</div>' : `<div>${absentToday.map(m=>`<span class="chip" style="border-color:var(--magenta); color:var(--magenta);">${escapeHtml(m.name)}${m.job?' · '+escapeHtml(m.job):''}</span>`).join('')}</div>`, hiddenPanels)}
+      ${dashPanel('class-balance', 'Class Balance', jobList.length ? jobList.map(([job,count])=>`
           <div class="job-bar-row">
             ${jobIconSvg(job)}
             <span style="width:86px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(job)}</span>
             <div class="job-bar-track"><div class="job-bar-fill" style="width:${(count/maxJobCount*100).toFixed(0)}%; background:${JOB_COLORS[job]||'var(--cyan-dim)'};"></div></div>
             <span class="job-bar-count">${count}</span>
           </div>
-        `).join('') : '<div class="empty-state" style="padding:14px 4px;">No jobs assigned yet.</div>'}
+        `).join('') : '<div class="empty-state" style="padding:14px 4px;">No jobs assigned yet.</div>', hiddenPanels)}
+    </div>
+
+    <div class="hud-panel" style="margin-top:24px;">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <h3 class="section-title" style="font-size:16px;">Elite vs Sub Performance</h3>
+      <p class="section-hint">Total kills, assists, and deaths by team — per war day and overall. Based on the Role set when each record was saved in New Record.</p>
+      <div class="stat-card-grid" style="margin-bottom:22px;">
+        <div class="stat-card"><div class="stat-value">${totalEliteKills}</div><div class="stat-label">Elite Kills — All Time</div></div>
+        <div class="stat-card"><div class="stat-value">${totalSubKills}</div><div class="stat-label">Sub Kills — All Time</div></div>
+        <div class="stat-card"><div class="stat-value">${totalEliteAssists}</div><div class="stat-label">Elite Assists — All Time</div></div>
+        <div class="stat-card"><div class="stat-value">${totalSubAssists}</div><div class="stat-label">Sub Assists — All Time</div></div>
+        <div class="stat-card"><div class="stat-value">${totalEliteDeaths}</div><div class="stat-label">Elite Deaths — All Time</div></div>
+        <div class="stat-card"><div class="stat-value">${totalSubDeaths}</div><div class="stat-label">Sub Deaths — All Time</div></div>
+      </div>
+      ${killsByDay.length ? `
+      <table class="responsive">
+        <thead><tr><th>Date</th><th>Opponent</th><th class="num">Elite Kills</th><th class="num">Sub Kills</th><th class="num">Elite Assists</th><th class="num">Sub Assists</th><th class="num">Elite Deaths</th><th class="num">Sub Deaths</th></tr></thead>
+        <tbody>${killsByDay.map(d=>`
+          <tr>
+            <td data-label="Date">${escapeHtml(d.date||'')}</td>
+            <td data-label="Opponent">${escapeHtml(d.opposing_guild||'—')}</td>
+            <td class="num" data-label="Elite Kills">${d.eliteKills}</td>
+            <td class="num" data-label="Sub Kills">${d.subKills}</td>
+            <td class="num" data-label="Elite Assists">${d.eliteAssists}</td>
+            <td class="num" data-label="Sub Assists">${d.subAssists}</td>
+            <td class="num" data-label="Elite Deaths">${d.eliteDeaths}</td>
+            <td class="num" data-label="Sub Deaths">${d.subDeaths}</td>
+          </tr>
+        `).join('')}</tbody>
+      </table>` : '<div class="empty-state">No sessions with a Role set yet.</div>'}
+
+      <div class="dash-grid" style="margin-top:22px;">
+        <div class="dash-panel">
+          <h3>Elite Roster (by wars played)</h3>
+          ${eliteRoster.length ? eliteRoster.map(([name,count],i)=>{
+            const job = (roster.find(m=>m.name===name)||{}).job||'';
+            return `<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(job)}<span class="lb-name">${escapeHtml(name)}</span><span class="lb-value">${count}</span></div>`;
+          }).join('') : '<div class="empty-state" style="padding:14px 4px;">No Elite records yet.</div>'}
+        </div>
+        <div class="dash-panel">
+          <h3>Sub Roster (by wars played)</h3>
+          ${subRoster.length ? subRoster.map(([name,count],i)=>{
+            const job = (roster.find(m=>m.name===name)||{}).job||'';
+            return `<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(job)}<span class="lb-name">${escapeHtml(name)}</span><span class="lb-value">${count}</span></div>`;
+          }).join('') : '<div class="empty-state" style="padding:14px 4px;">No Sub records yet.</div>'}
+        </div>
       </div>
     </div>
   `;
+  const showHiddenLink = $('show-hidden-panels');
+  if(showHiddenLink) showHiddenLink.addEventListener('click', showAllPanels);
+  document.querySelectorAll('[data-hide-panel]').forEach(btn=>btn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    hidePanel(btn.dataset.hidePanel);
+  }));
   document.querySelectorAll('[data-jump-session]').forEach(row=>row.addEventListener('click', ()=>{
     expandedSessionId = row.dataset.jumpSession;
     switchTab('log');
@@ -1437,6 +1541,7 @@ function renderLineupsList(){
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <span class="lineup-meta">${placedCount(l.teams)} placed</span>
         <button class="btn ghost small" data-copy-link="${l.share_slug}">Copy Share Link</button>
+        <button class="btn ghost small" data-duplicate-lineup="${l.id}">Duplicate</button>
         <button class="btn danger small" data-delete-lineup="${l.id}">Delete</button>
       </div>
     </div>
@@ -1448,11 +1553,29 @@ function renderLineupsList(){
     navigator.clipboard.writeText(url);
     setStatus('Share link copied.', 'ok');
   }));
+  document.querySelectorAll('[data-duplicate-lineup]').forEach(el=>el.addEventListener('click', ()=>duplicateLineup(el.dataset.duplicateLineup)));
   document.querySelectorAll('[data-delete-lineup]').forEach(el=>el.addEventListener('click', async ()=>{
     if(!confirm("Delete this lineup? This can't be undone.")) return;
     await sb.from('party_lineups').delete().eq('id', el.dataset.deleteLineup);
     await loadLineups(); renderLineupsList();
   }));
+}
+
+async function duplicateLineup(id){
+  const original = lineups.find(l=>l.id===id);
+  if(!original) return;
+  const { data, error } = await sb.from('party_lineups').insert({
+    guild_id: guildId,
+    name: `${original.name} (Copy)`,
+    date: todayStr(),
+    map_name: original.map_name,
+    opposing_guild: original.opposing_guild,
+    teams: JSON.parse(JSON.stringify(original.teams)),
+  }).select('id').single();
+  if(error){ setStatus("Couldn't duplicate lineup.", 'error'); return; }
+  await loadLineups();
+  setStatus('Lineup duplicated — update the date and you\'re set.', 'ok');
+  openEditor(data.id);
 }
 
 function defaultTeams(){
@@ -1544,6 +1667,7 @@ function renderEditor(){
         <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
           <button class="btn gold small" id="copy-share-btn">Copy Share Link</button>
           <button class="btn ghost small" id="renew-link-btn">Renew Link (24h)</button>
+          <button class="btn ghost small" id="duplicate-lineup-btn">Duplicate</button>
           <button class="btn danger small" id="delete-lineup-btn">Delete Lineup</button>
         </div>
         ${linkStatusHtml(l)}
@@ -1576,6 +1700,7 @@ function renderEditor(){
     setStatus('Link renewed for another 24 hours.', 'ok');
     renderEditor();
   });
+  $('duplicate-lineup-btn').addEventListener('click', ()=>duplicateLineup(currentLineup.id));
   $('delete-lineup-btn').addEventListener('click', async ()=>{
     if(!confirm("Delete this lineup? This can't be undone.")) return;
     await sb.from('party_lineups').delete().eq('id', currentLineup.id);
