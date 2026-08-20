@@ -1170,11 +1170,25 @@ function scheduleSave(){
     if(idx>=0) lineups[idx] = { ...lineups[idx], ...rest };
   }, 500);
 }
-function openEditor(id){
+let currentLineupAbsences = [];
+async function openEditor(id){
   currentLineup = JSON.parse(JSON.stringify(lineups.find(l=>l.id===id)));
   TAB_IDS.forEach(t=>$(t+'-tab').classList.add('hidden'));
   $('editor-tab').classList.remove('hidden');
+  currentLineupAbsences = [];
   renderEditor();
+  const { data } = await sb.from('absences').select('*').eq('lineup_id', id).order('member_name');
+  currentLineupAbsences = data || [];
+  const box = $('editor-absences');
+  if(box) box.outerHTML = tplAbsences();
+}
+function tplAbsences(){
+  return `<div id="editor-absences">${currentLineupAbsences.length ? `
+    <div style="margin:14px 0 4px; padding:12px 16px; border:1px solid var(--magenta); background:rgba(255,61,110,.06);">
+      <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--magenta);margin-bottom:8px;">Marked Absent (${currentLineupAbsences.length}) — from the share link</div>
+      ${currentLineupAbsences.map(a=>`<span class="chip">${escapeHtml(a.member_name)} — ${escapeHtml(a.absent_date)}</span>`).join('')}
+    </div>
+  ` : ''}</div>`;
 }
 function backToList(){
   currentLineup = null;
@@ -1209,6 +1223,7 @@ function renderEditor(){
         <button class="btn danger small" id="delete-lineup-btn">Delete Lineup</button>
       </div>
     </div>
+    ${tplAbsences()}
     ${l.teams.map((team,ti)=>tplTeam(team,ti)).join('')}
     <button class="btn gold small" id="add-team-btn" style="margin-bottom:20px;">+ Add Team</button>
     <h3 class="section-title" style="font-size:14px;">Unassigned (${unassigned.length})</h3>
