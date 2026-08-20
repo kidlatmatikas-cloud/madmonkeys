@@ -496,16 +496,26 @@ function computeMvpCounts(){
 }
 function blankMember(name){ return { name, id:null, mmid:'', job:'', sessions:0, tablets:0, monsters:0, kills:0, assists:0, deaths:0, scoreSum:0, best:0 }; }
 function computeRosterStats(){
-  const totalSessions = sessions.length;
+  // Attendance is based on unique WAR DAYS, not raw saved records — if you
+  // upload Elite and Sub scoreboards as two separate saves for the same
+  // date, that's one war day, not two chances to "attend."
+  const uniqueDates = [...new Set(sessions.map(s=>s.date).filter(Boolean))];
+  const totalDays = uniqueDates.length;
   const map = {};
   roster.forEach(m=>{ map[m.name]=blankMember(m.name); map[m.name].id=m.id; map[m.name].mmid=m.mmid||''; map[m.name].job=m.job||''; });
+  const attendedDates = {}; // name -> Set of dates they appeared on
   sessions.forEach(s=>(s.entries||[]).forEach(r=>{
     if(!map[r.name]) map[r.name]=blankMember(r.name);
     const m=map[r.name];
-    m.sessions++; m.tablets+=r.tablets; m.monsters+=r.monsters; m.kills+=r.kills; m.assists+=r.assists; m.deaths+=r.deaths;
+    m.tablets+=r.tablets; m.monsters+=r.monsters; m.kills+=r.kills; m.assists+=r.assists; m.deaths+=r.deaths;
     m.scoreSum+=r.score; if(r.score>m.best) m.best=r.score;
+    if(!attendedDates[r.name]) attendedDates[r.name] = new Set();
+    if(s.date) attendedDates[r.name].add(s.date);
   }));
-  return Object.values(map).map(m=>({ ...m, attendance: totalSessions?(m.sessions/totalSessions*100):0, avgScore: m.sessions?(m.scoreSum/m.sessions):0 }));
+  return Object.values(map).map(m=>{
+    const daysAttended = (attendedDates[m.name] || new Set()).size;
+    return { ...m, sessions: daysAttended, attendance: totalDays?(daysAttended/totalDays*100):0, avgScore: daysAttended?(m.scoreSum/daysAttended):0 };
+  });
 }
 
 /* ========================= Overview ========================= */
@@ -799,6 +809,14 @@ function renderSessionBody(id){
       </div>`;
 
   body.innerHTML = `
+    <div style="display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-top:14px; padding-bottom:14px; border-bottom:1px dashed var(--line);">
+      <div style="flex:0 0 180px;">
+        <label for="edit-date-${id}">Date</label>
+        <input type="date" id="edit-date-${id}" value="${s.date||''}">
+      </div>
+      <button class="btn ghost small" data-save-date="${id}">Save Date</button>
+      <span class="status-line" id="date-status-${id}" style="margin:0;"></span>
+    </div>
     <table class="responsive">
       <thead><tr><th>Rank</th><th>Name</th><th class="num">Tablets</th><th class="num">Monsters</th><th class="num">Kills</th><th class="num">Assists</th><th class="num">Deaths</th><th class="num">Score</th></tr></thead>
       <tbody>${rows.map(r=>`
@@ -819,6 +837,21 @@ function renderSessionBody(id){
       <button class="btn danger small" data-delete-session="${id}">Delete session</button>
     </div>
   `;
+  body.querySelector('[data-save-date]').addEventListener('click', async ()=>{
+    const newDate = $('edit-date-'+id).value;
+    if(!newDate){
+      const statusEl = $('date-status-'+id);
+      if(statusEl){ statusEl.className='status-line error'; statusEl.textContent='Pick a date.'; }
+      return;
+    }
+    await sb.from('sessions').update({ date: newDate }).eq('id', id);
+    const sIdx = sessions.findIndex(x=>x.id===id);
+    if(sIdx>=0) sessions[sIdx].date = newDate;
+    renderStatStrip();
+    renderLogTab();
+    const freshStatusEl = $('date-status-'+id);
+    if(freshStatusEl){ freshStatusEl.className='status-line ok'; freshStatusEl.textContent='Date updated.'; }
+  });
   body.querySelector('[data-delete-session]').addEventListener('click', async ()=>{
     if(!confirm("Delete this session? This can't be undone.")) return;
     await sb.from('sessions').delete().eq('id', id);
@@ -1065,7 +1098,7 @@ function renderAttendanceTab(){
   ];
   $('attendance-content').innerHTML = `
     <h2 class="section-title">Attendance</h2>
-    <p class="section-hint">Totals across every session, including roster members who haven't attended yet. Click a column to sort.</p>
+    <p class="section-hint">Totals across every war day, including roster members who haven't attended yet. If you save multiple records for the same date (e.g. Elite and Sub separately), they count as one day. Click a column to sort.</p>
     ${sessions.length===0 && roster.length===0 ? '<div class="empty-state">No sessions or roster yet.</div>' : `
     <table class="responsive">
       <thead><tr>
