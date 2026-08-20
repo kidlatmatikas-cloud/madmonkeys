@@ -219,15 +219,15 @@ function renderStatsLookupPanel(){
       <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
       <span class="corner corner-bl"></span><span class="corner corner-br"></span>
       <h3 class="section-title" style="font-size:16px;">Check Your War Stats</h3>
-      <p class="section-hint">Pick your name and enter your MMID to see your personal session history — kept private to you, since only you know your MMID.</p>
+      <p class="section-hint">Pick your name and enter your UID to see your personal session history — kept private to you, since only you know your UID.</p>
       <div class="field-row">
         <div>
           <label for="stats-name">Your Name</label>
           <select id="stats-name"><option value="">— Select your name —</option>${options}</select>
         </div>
         <div>
-          <label for="stats-mmid">Your MMID</label>
-          <input type="text" id="stats-mmid" placeholder="e.g. MM004">
+          <label for="stats-mmid">Your UID</label>
+          <input type="text" id="stats-mmid" placeholder="e.g. UID004">
         </div>
         <div style="flex:0 0 auto; display:flex; align-items:flex-end;">
           <button class="btn gold small" id="stats-check-btn">Check My Stats</button>
@@ -249,12 +249,12 @@ function wireStatsLookup(){
     const resultEl = document.getElementById('stats-result');
     resultEl.innerHTML = '';
     if(!name || !mmid){
-      statusEl.className='status-line error'; statusEl.textContent='Pick your name and enter your MMID.';
+      statusEl.className='status-line error'; statusEl.textContent='Pick your name and enter your UID.';
       return;
     }
     const member = guildRoster.find(m=>m.name===name);
     if(!member || String(member.mmid||'').trim().toLowerCase() !== mmid.toLowerCase()){
-      statusEl.className='status-line error'; statusEl.textContent = "Name and MMID don't match our records.";
+      statusEl.className='status-line error'; statusEl.textContent = "Name and UID don't match our records.";
       return;
     }
     statusEl.className='status-line ok'; statusEl.textContent = 'Match found — here you go:';
