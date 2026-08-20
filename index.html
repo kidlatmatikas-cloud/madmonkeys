@@ -561,6 +561,7 @@ function renderOverviewTab(){
   const mvpCounts = computeMvpCounts();
   const sessionDays = getSessionDays();
   const topAvg = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
+  const topHighPriest = rosterStats.filter(m=>m.sessions>0 && m.job==='High Priest').sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
   const topMvp = Object.entries(mvpCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
   const topAttendance = sessions.length ? [...rosterStats].sort((a,b)=>b.attendance-a.attendance).slice(0,5) : [];
   const jobCounts = {};
@@ -596,6 +597,10 @@ function renderOverviewTab(){
       <div class="dash-panel">
         <h3>Top Average Score</h3>
         ${topAvg.length ? topAvg.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.avgScore.toFixed(0)}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No scored sessions yet.</div>'}
+      </div>
+      <div class="dash-panel">
+        <h3>Top High Priest</h3>
+        ${topHighPriest.length ? topHighPriest.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.avgScore.toFixed(0)}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No High Priest sessions yet.</div>'}
       </div>
       <div class="dash-panel">
         <h3>Most MVPs</h3>
