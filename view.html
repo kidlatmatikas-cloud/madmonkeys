@@ -105,6 +105,15 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
 .tabs{ display:flex; gap:6px; margin:20px 0 4px; }
 .tab-btn{ font-weight:700; font-size:13.5px; letter-spacing:.06em; text-transform:uppercase; background:var(--bg-panel-2); border:1px solid var(--line); padding:9px 18px; cursor:pointer; color:var(--ink-soft); }
 .tab-btn.active{ color:var(--bg); background:var(--cyan); border-color:var(--cyan); }
+/* enlarged lineup details */
+.meta-bar{ display:flex; gap:32px; flex-wrap:wrap; margin:6px 0 24px; padding-bottom:20px; border-bottom:1px solid var(--line-strong); }
+.meta-item{ min-width:130px; }
+.meta-label{ font-size:11.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--ink-soft); font-weight:700; margin-bottom:5px; }
+.meta-value{ font-family:'Orbitron',sans-serif; font-size:23px; font-weight:700; color:var(--cyan); line-height:1.2; text-shadow:0 0 14px rgba(45,226,255,.25); }
+.meta-value.plain{ color:var(--ink); text-shadow:none; }
+/* absence panel */
+.absence-panel select#absence-name{ font-weight:700; }
+#absence-list .chip{ border-color:var(--magenta); color:var(--magenta); }
 
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -113,7 +122,7 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
 <div class="wrap">
   <header class="masthead">
     <div>
-      <h1 id="masthead-title">MADMONKEYS</h1>
+      <h1 id="masthead-title">// WAR LOG</h1>
       <div class="sub">View Only — Party Lineup</div>
     </div>
   </header>
@@ -151,6 +160,29 @@ function jobIconSvg(job){
 }
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+let currentLineup = null;
+
+function collectLineupNames(lineup){
+  const names = new Set();
+  lineup.teams.forEach(t=>t.parties.forEach(p=>p.slots.forEach(s=>{ if(s.name) names.add(s.name); })));
+  return [...names].sort();
+}
+
+async function loadAbsences(lineupId){
+  const { data } = await sb.from('absences').select('*').eq('lineup_id', lineupId).order('member_name');
+  return data || [];
+}
+
+async function renderAbsenceList(lineupId){
+  const el = document.getElementById('absence-list');
+  if(!el) return;
+  const absences = await loadAbsences(lineupId);
+  el.innerHTML = absences.length ? `
+    <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--magenta);margin:14px 0 8px;">Marked Absent (${absences.length})</div>
+    ${absences.map(a=>`<span class="chip">${escapeHtml(a.member_name)} — ${escapeHtml(a.absent_date)}</span>`).join('')}
+  ` : '';
+}
+
 async function render(){
   const params = new URLSearchParams(location.search);
   const slug = params.get('slug');
@@ -169,18 +201,23 @@ async function render(){
     content.innerHTML = '<div class="empty-state">This lineup link doesn\'t exist or was removed.</div>';
     return;
   }
+  currentLineup = lineup;
 
-  document.getElementById('masthead-title').textContent = 'MADMONKEYS';
+  document.getElementById('masthead-title').textContent = (lineup.guild_settings?.name || 'Guild').toUpperCase() + ' // WAR LOG';
   document.title = lineup.name + ' — Guild War Log';
 
-  const meta = [lineup.date, lineup.map_name, lineup.opposing_guild ? 'vs '+lineup.opposing_guild : null].filter(Boolean).join('   ·   ');
+  const names = collectLineupNames(lineup);
 
   content.innerHTML = `
     <div class="hud-panel">
       <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
       <span class="corner corner-bl"></span><span class="corner corner-br"></span>
       <h2 class="section-title">${escapeHtml(lineup.name)}</h2>
-      <p class="section-hint">${escapeHtml(meta)}</p>
+      <div class="meta-bar">
+        ${lineup.date ? `<div class="meta-item"><div class="meta-label">Date</div><div class="meta-value plain">${escapeHtml(lineup.date)}</div></div>` : ''}
+        ${lineup.map_name ? `<div class="meta-item"><div class="meta-label">Map</div><div class="meta-value">${escapeHtml(lineup.map_name)}</div></div>` : ''}
+        ${lineup.opposing_guild ? `<div class="meta-item"><div class="meta-label">Opponent</div><div class="meta-value">${escapeHtml(lineup.opposing_guild)}</div></div>` : ''}
+      </div>
       ${lineup.teams.map(team => `
         <div class="team-block">
           <div class="team-header"><span class="team-name-input" style="border-bottom:none;">${escapeHtml(team.name)}</span></div>
@@ -199,10 +236,55 @@ async function render(){
         </div>
       `).join('')}
     </div>
+
+    <div class="hud-panel absence-panel">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <h3 class="section-title" style="font-size:16px;">Can't Make It?</h3>
+      <p class="section-hint">Pick your name and let your officers know if you'll be absent.</p>
+      <div class="field-row">
+        <div>
+          <label for="absence-name">Your Name</label>
+          <select id="absence-name">
+            <option value="">— Select your name —</option>
+            ${names.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label for="absence-date">Date</label>
+          <input type="date" id="absence-date" value="${lineup.date||''}">
+        </div>
+        <div style="flex:0 0 auto; display:flex; align-items:flex-end;">
+          <button class="btn gold small" id="absence-submit-btn">Mark Absent</button>
+        </div>
+      </div>
+      <div class="status-line" id="absence-status"></div>
+      <div id="absence-list"></div>
+    </div>
+
     <footer style="text-align:center; font-size:12px; color:var(--ink-faint); margin-top:24px;">
-      View-only — ask an officer if something needs to change.
+      View-only lineup — ask an officer if something needs to change.
     </footer>
   `;
+
+  document.getElementById('absence-submit-btn').addEventListener('click', async ()=>{
+    const name = document.getElementById('absence-name').value;
+    const date = document.getElementById('absence-date').value;
+    const statusEl = document.getElementById('absence-status');
+    if(!name || !date){ statusEl.className='status-line error'; statusEl.textContent='Pick your name and a date.'; return; }
+    statusEl.className='status-line'; statusEl.textContent='Saving…';
+    const { data: existingRows } = await sb.from('absences').select('id').eq('lineup_id', currentLineup.id).eq('member_name', name).eq('absent_date', date);
+    if(existingRows && existingRows.length){
+      statusEl.className='status-line ok'; statusEl.textContent = "You're already marked absent for that date.";
+    } else {
+      const { error } = await sb.from('absences').insert({ guild_id: currentLineup.guild_id, lineup_id: currentLineup.id, member_name: name, absent_date: date });
+      statusEl.className = 'status-line ' + (error ? 'error' : 'ok');
+      statusEl.textContent = error ? "Couldn't save — try again." : 'Got it — marked as absent.';
+    }
+    await renderAbsenceList(currentLineup.id);
+  });
+
+  await renderAbsenceList(lineup.id);
 }
 render();
 </script>
