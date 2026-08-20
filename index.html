@@ -1172,9 +1172,12 @@ function scheduleSave(){
 }
 let currentLineupAbsences = [];
 async function openEditor(id){
-  currentLineup = JSON.parse(JSON.stringify(lineups.find(l=>l.id===id)));
   TAB_IDS.forEach(t=>$(t+'-tab').classList.add('hidden'));
   $('editor-tab').classList.remove('hidden');
+  $('editor-content').innerHTML = '<div class="status-line">Loading…</div>';
+  const { data: fresh } = await sb.from('party_lineups').select('*').eq('id', id).single();
+  currentLineup = fresh || lineups.find(l=>l.id===id);
+  if(fresh){ const idx = lineups.findIndex(l=>l.id===id); if(idx>=0) lineups[idx] = fresh; }
   currentLineupAbsences = [];
   renderEditor();
   const { data } = await sb.from('absences').select('*').eq('lineup_id', id).order('member_name');
