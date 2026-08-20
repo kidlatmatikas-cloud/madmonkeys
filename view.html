@@ -273,15 +273,34 @@ async function render(){
     const statusEl = document.getElementById('absence-status');
     if(!name || !date){ statusEl.className='status-line error'; statusEl.textContent='Pick your name and a date.'; return; }
     statusEl.className='status-line'; statusEl.textContent='Saving…';
+
+    let resultMsg, resultCls;
     const { data: existingRows } = await sb.from('absences').select('id').eq('lineup_id', currentLineup.id).eq('member_name', name).eq('absent_date', date);
     if(existingRows && existingRows.length){
-      statusEl.className='status-line ok'; statusEl.textContent = "You're already marked absent for that date.";
+      resultMsg = "You're already marked absent for that date.";
+      resultCls = 'ok';
     } else {
       const { error } = await sb.from('absences').insert({ guild_id: currentLineup.guild_id, lineup_id: currentLineup.id, member_name: name, absent_date: date });
-      statusEl.className = 'status-line ' + (error ? 'error' : 'ok');
-      statusEl.textContent = error ? "Couldn't save — try again." : 'Got it — marked as absent.';
+      if(error){
+        resultMsg = "Couldn't save — try again.";
+        resultCls = 'error';
+      } else {
+        // Clear their slot(s) in this lineup so the party list reflects it immediately
+        let changed = false;
+        const teams = JSON.parse(JSON.stringify(currentLineup.teams));
+        teams.forEach(t=>t.parties.forEach(p=>p.slots.forEach(s=>{
+          if(s.name === name){ s.name=''; s.job=''; changed=true; }
+        })));
+        if(changed){
+          await sb.from('party_lineups').update({ teams }).eq('id', currentLineup.id);
+        }
+        resultMsg = changed ? "Got it — you're marked absent and removed from your party." : 'Got it — marked as absent.';
+        resultCls = 'ok';
+      }
     }
-    await renderAbsenceList(currentLineup.id);
+    await render();
+    const freshStatusEl = document.getElementById('absence-status');
+    if(freshStatusEl){ freshStatusEl.className = 'status-line '+resultCls; freshStatusEl.textContent = resultMsg; }
   });
 
   await renderAbsenceList(lineup.id);
