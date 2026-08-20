@@ -114,6 +114,12 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
 /* absence panel */
 .absence-panel select#absence-name{ font-weight:700; }
 #absence-list .chip{ border-color:var(--magenta); color:var(--magenta); }
+/* personal stats lookup */
+.stat-card-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:14px; margin-top:16px; }
+.stat-card{ position:relative; border:1px solid var(--line-strong); background:var(--bg-panel-2); padding:14px 16px; overflow:hidden; }
+.stat-card::before{ content:""; position:absolute; top:0; left:0; width:3px; height:100%; background:var(--cyan); }
+.stat-card .stat-value{ font-family:'Orbitron',sans-serif; font-size:22px; font-weight:800; line-height:1.1; color:var(--ink); }
+.stat-card .stat-label{ font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-soft); margin-top:5px; font-weight:600; }
 
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -173,6 +179,103 @@ async function loadAbsences(lineupId){
   return data || [];
 }
 
+let guildRoster = [];
+let guildSessions = [];
+
+async function loadStatsData(guildId){
+  const [{ data: members }, { data: sess }] = await Promise.all([
+    sb.from('roster_members').select('mmid,name').eq('guild_id', guildId).order('name'),
+    sb.from('sessions').select('*, session_entries(*)').eq('guild_id', guildId)
+  ]);
+  guildRoster = members || [];
+  guildSessions = (sess || []).map(s => ({ ...s, entries: s.session_entries || [] }));
+}
+
+function computePersonalStats(name){
+  const totalSessions = guildSessions.length;
+  let attended=0, tablets=0, monsters=0, kills=0, assists=0, deaths=0, scoreSum=0, best=0, mvps=0;
+  guildSessions.forEach(s=>{
+    const entry = (s.entries||[]).find(e=>e.name===name);
+    if(entry){
+      attended++;
+      tablets+=entry.tablets; monsters+=entry.monsters; kills+=entry.kills; assists+=entry.assists; deaths+=entry.deaths;
+      scoreSum+=entry.score; if(entry.score>best) best=entry.score;
+      if(entry.rank && String(entry.rank).toUpperCase()==='MVP') mvps++;
+    }
+  });
+  return {
+    totalSessions, attended,
+    attendance: totalSessions ? (attended/totalSessions*100) : 0,
+    avgScore: attended ? (scoreSum/attended) : 0,
+    best, tablets, monsters, kills, assists, deaths, mvps
+  };
+}
+
+function renderStatsLookupPanel(){
+  const options = guildRoster.map(m=>`<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join('');
+  return `
+    <div class="hud-panel">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <h3 class="section-title" style="font-size:16px;">Check Your War Stats</h3>
+      <p class="section-hint">Pick your name and enter your MMID to see your personal session history — kept private to you, since only you know your MMID.</p>
+      <div class="field-row">
+        <div>
+          <label for="stats-name">Your Name</label>
+          <select id="stats-name"><option value="">— Select your name —</option>${options}</select>
+        </div>
+        <div>
+          <label for="stats-mmid">Your MMID</label>
+          <input type="text" id="stats-mmid" placeholder="e.g. MM004">
+        </div>
+        <div style="flex:0 0 auto; display:flex; align-items:flex-end;">
+          <button class="btn gold small" id="stats-check-btn">Check My Stats</button>
+        </div>
+      </div>
+      <div class="status-line" id="stats-status"></div>
+      <div id="stats-result"></div>
+    </div>
+  `;
+}
+
+function wireStatsLookup(){
+  const btn = document.getElementById('stats-check-btn');
+  if(!btn) return;
+  const submit = ()=>{
+    const name = document.getElementById('stats-name').value;
+    const mmid = document.getElementById('stats-mmid').value.trim();
+    const statusEl = document.getElementById('stats-status');
+    const resultEl = document.getElementById('stats-result');
+    resultEl.innerHTML = '';
+    if(!name || !mmid){
+      statusEl.className='status-line error'; statusEl.textContent='Pick your name and enter your MMID.';
+      return;
+    }
+    const member = guildRoster.find(m=>m.name===name);
+    if(!member || String(member.mmid||'').trim().toLowerCase() !== mmid.toLowerCase()){
+      statusEl.className='status-line error'; statusEl.textContent = "Name and MMID don't match our records.";
+      return;
+    }
+    statusEl.className='status-line ok'; statusEl.textContent = 'Match found — here you go:';
+    const st = computePersonalStats(name);
+    resultEl.innerHTML = `
+      <div class="stat-card-grid">
+        <div class="stat-card"><div class="stat-value">${st.attended}/${st.totalSessions}</div><div class="stat-label">Sessions Attended</div></div>
+        <div class="stat-card"><div class="stat-value">${st.attendance.toFixed(0)}%</div><div class="stat-label">Attendance</div></div>
+        <div class="stat-card"><div class="stat-value">${st.avgScore.toFixed(0)}</div><div class="stat-label">Avg Score</div></div>
+        <div class="stat-card"><div class="stat-value">${st.best}</div><div class="stat-label">Best Score</div></div>
+        <div class="stat-card"><div class="stat-value">${st.mvps}</div><div class="stat-label">MVPs</div></div>
+        <div class="stat-card"><div class="stat-value">${st.kills}</div><div class="stat-label">Total Kills</div></div>
+        <div class="stat-card"><div class="stat-value">${st.assists}</div><div class="stat-label">Total Assists</div></div>
+        <div class="stat-card"><div class="stat-value">${st.deaths}</div><div class="stat-label">Total Deaths</div></div>
+        <div class="stat-card"><div class="stat-value">${st.tablets}</div><div class="stat-label">Total Tablets</div></div>
+        <div class="stat-card"><div class="stat-value">${st.monsters}</div><div class="stat-label">Total Monsters</div></div>
+      </div>
+    `;
+  };
+  btn.addEventListener('click', submit);
+}
+
 async function renderAbsenceList(lineupId){
   const el = document.getElementById('absence-list');
   if(!el) return;
@@ -212,9 +315,11 @@ async function render(){
   document.getElementById('masthead-title').textContent = (lineup.guild_settings?.name || 'Guild').toUpperCase() + ' // WAR LOG';
   document.title = lineup.name + ' — Guild War Log';
 
+  await loadStatsData(lineup.guild_id);
   const names = collectLineupNames(lineup);
 
   content.innerHTML = `
+    ${renderStatsLookupPanel()}
     <div class="hud-panel">
       <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
       <span class="corner corner-bl"></span><span class="corner corner-br"></span>
@@ -315,6 +420,7 @@ async function render(){
     if(freshStatusEl){ freshStatusEl.className = 'status-line '+resultCls; freshStatusEl.textContent = resultMsg; }
   });
 
+  wireStatsLookup();
   await renderAbsenceList(lineup.id);
 }
 render();
