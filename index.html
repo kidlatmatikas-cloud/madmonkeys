@@ -530,7 +530,7 @@ function computeMvpCounts(){
   }));
   return counts;
 }
-function blankMember(name){ return { name, id:null, mmid:'', job:'', sessions:0, tablets:0, monsters:0, trueTablets:0, trueMonsterKills:0, kills:0, assists:0, deaths:0, scoreSum:0, best:0 }; }
+function blankMember(name){ return { name, id:null, mmid:'', job:'', sessions:0, tablets:0, monsters:0, trueTablets:0, trueMonsterKills:0, kills:0, assists:0, deaths:0, eliteDeaths:0, subDeaths:0, scoreSum:0, best:0 }; }
 function computeRosterStats(){
   // Attendance is based on unique WAR DAYS, not raw saved records — if you
   // upload Elite and Sub scoreboards as two separate saves for the same
@@ -551,8 +551,8 @@ function computeRosterStats(){
     // records, and a true "monster kills" total has to combine Elite's
     // Monsters column with Sub's (mislabeled) Tablets column, since
     // that's actually where Sub's monster-kill count lives.
-    if(s.role==='Elite'){ m.trueTablets+=r.tablets; m.trueMonsterKills+=r.monsters; }
-    else if(s.role==='Sub'){ m.trueMonsterKills+=r.tablets; }
+    if(s.role==='Elite'){ m.trueTablets+=r.tablets; m.trueMonsterKills+=r.monsters; m.eliteDeaths+=r.deaths; }
+    else if(s.role==='Sub'){ m.trueMonsterKills+=r.tablets; m.subDeaths+=r.deaths; }
     m.scoreSum+=r.score; if(r.score>m.best) m.best=r.score;
     if(!attendedDates[r.name]) attendedDates[r.name] = new Set();
     if(s.date) attendedDates[r.name].add(s.date);
@@ -601,6 +601,8 @@ function renderOverviewTab(){
   const topAvg = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
   const topHighPriest = rosterStats.filter(m=>m.sessions>0 && m.job==='High Priest').sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
   const topKills = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.kills-a.kills).slice(0,5);
+  const topDeathsElite = rosterStats.filter(m=>m.eliteDeaths>0).sort((a,b)=>b.eliteDeaths-a.eliteDeaths).slice(0,5);
+  const topDeathsSub = rosterStats.filter(m=>m.subDeaths>0).sort((a,b)=>b.subDeaths-a.subDeaths).slice(0,5);
   const topAssists = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.assists-a.assists).slice(0,5);
   const topTablets = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.trueTablets-a.trueTablets).slice(0,5);
   const topMonsterKills = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.trueMonsterKills-a.trueMonsterKills).slice(0,5);
@@ -677,6 +679,8 @@ function renderOverviewTab(){
         }).join('') : '<div class="empty-state" style="padding:14px 4px;">No MVPs recorded yet.</div>', hiddenPanels)}
       ${dashPanel('best-attendance', 'Best Attendance', topAttendance.length ? topAttendance.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.attendance.toFixed(0)}%</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
       ${dashPanel('top-kills', 'Top Kills', topKills.length ? topKills.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.kills}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
+      ${dashPanel('top-deaths-elite', 'Top Deaths — Elite', topDeathsElite.length ? topDeathsElite.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value" style="color:var(--magenta);">${m.eliteDeaths}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No Elite sessions yet.</div>', hiddenPanels)}
+      ${dashPanel('top-deaths-sub', 'Top Deaths — Sub', topDeathsSub.length ? topDeathsSub.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value" style="color:var(--magenta);">${m.subDeaths}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No Sub sessions yet.</div>', hiddenPanels)}
       ${dashPanel('top-assists', 'Top Assists', topAssists.length ? topAssists.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.assists}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
       ${dashPanel('top-tablets', 'Top Tablets Taken', topTablets.length ? topTablets.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.trueTablets}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No Elite sessions yet.</div>', hiddenPanels)}
       ${dashPanel('top-monster-kills', 'Top Monster Kills', topMonsterKills.length ? topMonsterKills.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.trueMonsterKills}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
