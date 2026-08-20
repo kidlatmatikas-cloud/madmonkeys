@@ -350,6 +350,7 @@ let attendanceSort = { key:'attendance', dir:'desc' };
 
 function todayStr(){ return new Date().toISOString().slice(0,10); }
 let draftEntries = [];
+let discordAttendees = []; // [{ discordName, matchedName, alreadyRecorded }]
 let draftEventName = 'WoE';
 let draftDate = todayStr();
 let draftOpposingGuild = '';
@@ -492,7 +493,7 @@ function getSessionDays(){
       role: roles.join(' + '),
       opposing_guild: opponents[0] || '',
       our_score, opponent_score,
-      entries: records.flatMap(r=>r.entries||[]),
+      entries: records.flatMap(r=>(r.entries||[]).map(e=>({ ...e, _role: r.role||'' }))),
       recordIds: records.map(r=>r.id),
       recordCount: records.length,
     };
@@ -590,7 +591,10 @@ function renderOverviewTab(){
               <div class="recent-row-title">${escapeHtml(s.event_name)}${s.opposing_guild?' vs '+escapeHtml(s.opposing_guild):''}</div>
               <div class="recent-row-meta">${s.date||''}${s.role?' · '+escapeHtml(s.role):''}</div>
             </div>
-            ${outcome?`<span class="outcome-tag ${cls}" style="border-color:currentColor;">${outcome}</span>`:''}
+            <div style="display:flex; align-items:center; gap:8px;">
+              ${outcome?`<span class="outcome-tag ${cls}" style="border-color:currentColor;">${outcome}</span>`:''}
+              <button class="btn ghost small" data-discord-day="${s.date}" title="Post this war's report to Discord" style="padding:4px 9px; font-size:11px;">Post</button>
+            </div>
           </div>`;
         }).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>'}
       </div>
@@ -630,6 +634,15 @@ function renderOverviewTab(){
     expandedSessionId = row.dataset.jumpSession;
     switchTab('log');
   }));
+  document.querySelectorAll('[data-discord-day]').forEach(btn=>btn.addEventListener('click', async (e)=>{
+    e.stopPropagation();
+    if(!confirm("Post this war's report to your guild Discord now?")) return;
+    const originalText = btn.textContent;
+    btn.textContent = '…'; btn.disabled = true;
+    const result = await postDiscordReport(btn.dataset.discordDay, null);
+    btn.textContent = originalText; btn.disabled = false;
+    setStatus(result.ok ? 'Posted to Discord.' : (result.message || "Couldn't post to Discord."), result.ok ? 'ok' : 'error');
+  }));
 }
 
 /* ========================= New Record ========================= */
@@ -662,11 +675,30 @@ function renderNewTab(){
       <button class="btn ghost" id="nf-discard">Discard</button>
       <button class="btn gold" id="nf-save">Save session</button>
     </div>
+
+    <div style="margin-top:34px; padding-top:24px; border-top:1px solid var(--line-strong);">
+      <h3 class="section-title" style="font-size:16px;">Mark Attendance from Discord</h3>
+      <p class="section-hint">Screenshot a Discord voice channel, member list, or check-in messages — this reads out who's there and matches them to your roster for the date above (${escapeHtml(draftDate)}). No stats needed, just confirms who showed up.</p>
+      <div id="nf-discord-dropzone" style="text-align:center; padding:22px 16px; cursor:pointer; border:1px dashed var(--line-strong); margin-bottom:6px;">
+        <div style="font-weight:700;">Drop a Discord screenshot or click to browse</div>
+        <input type="file" id="nf-discord-file-input" accept="image/*" style="display:none;">
+      </div>
+      <div class="status-line" id="nf-discord-status"></div>
+      <div id="nf-discord-review"></div>
+    </div>
   `;
   renderDraftTable();
+  renderDiscordReview();
 
   $('nf-event').addEventListener('input', e=>draftEventName=e.target.value);
-  $('nf-date').addEventListener('change', e=>draftDate=e.target.value);
+  $('nf-date').addEventListener('change', e=>{
+    draftDate=e.target.value;
+    if(discordAttendees.length){
+      const already = namesAlreadyRecordedForDate(draftDate);
+      discordAttendees.forEach(a=>{ a.alreadyRecorded = a.matchedName ? already.has(a.matchedName) : false; });
+      renderDiscordReview();
+    }
+  });
   $('nf-opp').addEventListener('input', e=>draftOpposingGuild=e.target.value);
   $('nf-role').addEventListener('change', e=>draftRole=e.target.value);
   $('nf-our-score').addEventListener('input', e=>draftOurScore=e.target.value);
@@ -679,6 +711,12 @@ function renderNewTab(){
   $('nf-add-row').addEventListener('click', ()=>{ draftEntries.push({rank:'',name:'',tablets:0,monsters:0,kills:0,assists:0,deaths:0,score:0}); renderDraftTable(); });
   $('nf-discard').addEventListener('click', ()=>{ if(draftEntries.length && !confirm('Discard the current draft?')) return; draftEntries=[]; renderDraftTable(); });
   $('nf-save').addEventListener('click', saveSession);
+
+  $('nf-discord-dropzone').addEventListener('click', ()=>$('nf-discord-file-input').click());
+  $('nf-discord-file-input').addEventListener('change', e=>handleDiscordScan(e.target.files[0]));
+  $('nf-discord-dropzone').addEventListener('dragover', e=>{ e.preventDefault(); $('nf-discord-dropzone').style.borderColor='var(--cyan)'; });
+  $('nf-discord-dropzone').addEventListener('dragleave', ()=>{ $('nf-discord-dropzone').style.borderColor='var(--line-strong)'; });
+  $('nf-discord-dropzone').addEventListener('drop', e=>{ e.preventDefault(); $('nf-discord-dropzone').style.borderColor='var(--line-strong)'; if(e.dataTransfer.files[0]) handleDiscordScan(e.dataTransfer.files[0]); });
 }
 document.addEventListener('paste', e=>{
   if(currentTab!=='new') return;
@@ -755,6 +793,187 @@ async function handleScanFiles(fileList){
   renderDraftTable();
 }
 
+/* ========================= Discord attendance check-in ========================= */
+function matchRosterName(discordName){
+  const clean = discordName.trim().toLowerCase();
+  if(!clean) return '';
+  let match = roster.find(m=>m.name.trim().toLowerCase()===clean);
+  if(match) return match.name;
+  match = roster.find(m=>{
+    const rn = m.name.trim().toLowerCase();
+    return rn.length>=3 && (clean.includes(rn) || rn.includes(clean));
+  });
+  return match ? match.name : '';
+}
+function namesAlreadyRecordedForDate(date){
+  const names = new Set();
+  sessions.forEach(s=>{ if(s.date===date) (s.entries||[]).forEach(e=>names.add(e.name)); });
+  return names;
+}
+async function handleDiscordScan(file){
+  if(!file) return;
+  const statusEl = $('nf-discord-status');
+  statusEl.className='status-line'; statusEl.textContent='Reading '+file.name+'…';
+  try{
+    const base64 = await fileToBase64(file);
+    const res = await fetch('/api/scan-discord', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ imageBase64: base64, mediaType: file.type })
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error || 'Scan failed');
+    if(!data.names || data.names.length===0) throw new Error('No names found');
+
+    const already = namesAlreadyRecordedForDate(draftDate);
+    const existingDiscordNames = new Set(discordAttendees.map(a=>a.discordName));
+    const newRows = data.names
+      .filter(n=>!existingDiscordNames.has(n))
+      .map(n=>{
+        const matched = matchRosterName(n);
+        return { discordName:n, matchedName:matched, alreadyRecorded: matched ? already.has(matched) : false };
+      });
+    discordAttendees = discordAttendees.concat(newRows);
+    statusEl.className='status-line ok';
+    statusEl.textContent = `Found ${data.names.length} name(s) — review matches below.`;
+  }catch(err){
+    statusEl.className='status-line error';
+    statusEl.textContent = "Couldn't read "+file.name+" — "+(err.message||'try again.');
+  }
+  renderDiscordReview();
+}
+function renderDiscordReview(){
+  const wrap = $('nf-discord-review');
+  if(!wrap) return;
+  if(discordAttendees.length===0){ wrap.innerHTML=''; return; }
+
+  const rosterOptions = (selected) => '<option value="">— No match —</option>' + roster.map(m=>`<option value="${escapeHtml(m.name)}" ${m.name===selected?'selected':''}>${escapeHtml(m.name)}</option>`).join('');
+  const willRecord = discordAttendees.filter(a=>a.matchedName && !a.alreadyRecorded).length;
+
+  wrap.innerHTML = `
+    <table class="responsive" style="margin-top:14px;">
+      <thead><tr><th>Discord Name</th><th>Matched Roster Member</th><th></th></tr></thead>
+      <tbody>${discordAttendees.map((a,i)=>`
+        <tr style="${a.alreadyRecorded?'opacity:.55;':''}">
+          <td data-label="Discord Name">${escapeHtml(a.discordName)}</td>
+          <td data-label="Matched">
+            <select data-discord-match="${i}">${rosterOptions(a.matchedName)}</select>
+            ${a.alreadyRecorded ? '<span style="font-size:11px;color:var(--ink-soft);margin-left:6px;">already recorded</span>' : (!a.matchedName ? '<span style="font-size:11px;color:var(--magenta);margin-left:6px;">no match</span>' : '')}
+          </td>
+          <td data-label=""><button class="row-del" data-discord-remove="${i}">✕</button></td>
+        </tr>
+      `).join('')}</tbody>
+    </table>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; flex-wrap:wrap; gap:10px;">
+      <span style="font-size:12.5px;color:var(--ink-soft);">${willRecord} member(s) will be marked present</span>
+      <div style="display:flex; gap:8px;">
+        <button class="btn ghost small" id="nf-discord-clear">Clear</button>
+        <button class="btn gold small" id="nf-discord-record">Record Attendance</button>
+      </div>
+    </div>
+  `;
+
+  wrap.querySelectorAll('[data-discord-match]').forEach(sel=>sel.addEventListener('change', e=>{
+    const idx = +sel.dataset.discordMatch;
+    discordAttendees[idx].matchedName = e.target.value;
+    const already = namesAlreadyRecordedForDate(draftDate);
+    discordAttendees[idx].alreadyRecorded = e.target.value ? already.has(e.target.value) : false;
+    renderDiscordReview();
+  }));
+  wrap.querySelectorAll('[data-discord-remove]').forEach(btn=>btn.addEventListener('click', ()=>{
+    discordAttendees.splice(+btn.dataset.discordRemove,1);
+    renderDiscordReview();
+  }));
+  wrap.querySelector('#nf-discord-clear').addEventListener('click', ()=>{ discordAttendees=[]; renderDiscordReview(); });
+  wrap.querySelector('#nf-discord-record').addEventListener('click', recordDiscordAttendance);
+}
+async function recordDiscordAttendance(){
+  const toRecord = discordAttendees.filter(a=>a.matchedName && !a.alreadyRecorded);
+  if(toRecord.length===0){ setStatus('Nothing new to record — everyone matched is already accounted for.', 'error'); return; }
+  if(!confirm(`Mark ${toRecord.length} member(s) present for ${draftDate}?`)) return;
+
+  let checkinSession = sessions.find(s=>s.date===draftDate && s.event_name==='Discord Check-In');
+  let sessionId = checkinSession ? checkinSession.id : null;
+  if(!sessionId){
+    const { data, error } = await sb.from('sessions').insert({
+      guild_id: guildId, event_name: 'Discord Check-In', date: draftDate, role: null
+    }).select('id').single();
+    if(error){ setStatus("Couldn't record attendance.", 'error'); return; }
+    sessionId = data.id;
+  }
+  const existingInCheckin = checkinSession ? new Set((checkinSession.entries||[]).map(e=>e.name)) : new Set();
+  const rows = toRecord
+    .filter(a=>!existingInCheckin.has(a.matchedName))
+    .map(a=>({ session_id: sessionId, rank:'', name:a.matchedName, tablets:0, monsters:0, kills:0, assists:0, deaths:0, score:0 }));
+  if(rows.length){
+    await sb.from('session_entries').insert(rows);
+  }
+  discordAttendees = [];
+  await loadSessions();
+  renderStatStrip();
+  renderNewTab();
+  setStatus(`Marked ${rows.length} member(s) present for ${draftDate}.`, 'ok');
+}
+
+/* ========================= Discord report ========================= */
+function buildDiscordEmbed(day){
+  const jobByName = {};
+  roster.forEach(m=>{ jobByName[m.name] = m.job || ''; });
+
+  const eliteEntries = day.entries.filter(e=>e._role==='Elite').sort((a,b)=>b.score-a.score);
+  const subEntries = day.entries.filter(e=>e._role==='Sub').sort((a,b)=>b.score-a.score);
+
+  const byJob = {};
+  day.entries.forEach(e=>{
+    const job = jobByName[e.name];
+    if(!job) return;
+    if(!byJob[job]) byJob[job] = [];
+    byJob[job].push(e);
+  });
+  const jobFields = Object.keys(byJob).sort().map(job=>{
+    const top3 = [...byJob[job]].sort((a,b)=>b.score-a.score).slice(0,3);
+    return { name: job, value: top3.map((e,i)=>`${i+1}. ${e.name} — ${e.score}`).join('\n') || '—', inline: true };
+  });
+
+  const outcome = sessionOutcome(day);
+  const hasScore = day.our_score!=null || day.opponent_score!=null;
+  const outcomeIcon = outcome==='WIN' ? ' 🏆' : outcome==='LOSS' ? ' ❌' : outcome==='TIE' ? ' 🤝' : '';
+  const description = hasScore ? `**Final Score: ${day.our_score??0} – ${day.opponent_score??0}**${outcomeIcon}` : '';
+  const color = outcome==='WIN' ? 4110478 /* green */ : outcome==='LOSS' ? 15022428 /* red */ : outcome==='TIE' ? 14459453 /* gold */ : 5997295 /* default blue */;
+
+  const fields = [];
+  if(eliteEntries.length) fields.push({ name:'Top 5 — Elite', value: eliteEntries.slice(0,5).map((e,i)=>`${i+1}. ${e.name} — ${e.score}`).join('\n'), inline:true });
+  if(subEntries.length) fields.push({ name:'Top 5 — Sub', value: subEntries.slice(0,5).map((e,i)=>`${i+1}. ${e.name} — ${e.score}`).join('\n'), inline:true });
+  fields.push(...jobFields);
+
+  return {
+    embeds: [{
+      title: `${day.event_name || 'WoE'}${day.opposing_guild ? ' vs ' + day.opposing_guild : ''}`,
+      description,
+      color,
+      fields,
+      footer: { text: day.date || '' },
+    }]
+  };
+}
+async function postDiscordReport(date, statusEl){
+  const day = getSessionDays().find(d=>d.date===date);
+  if(!day) return { ok:false, message:'Session not found.' };
+  try{
+    const res = await fetch('/api/discord-report', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(buildDiscordEmbed(day))
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || 'Discord post failed');
+    if(statusEl){ statusEl.className='status-line ok'; statusEl.textContent='Posted to Discord.'; }
+    return { ok:true };
+  }catch(err){
+    const msg = "Couldn't post to Discord — "+(err.message||'try again.');
+    if(statusEl){ statusEl.className='status-line error'; statusEl.textContent=msg; }
+    return { ok:false, message:msg };
+  }
+}
+
 async function saveSession(){
   draftEventName = ($('nf-event').value||'WoE').trim() || 'WoE';
   draftDate = $('nf-date').value || draftDate;
@@ -777,10 +996,11 @@ async function saveSession(){
   const entryRows = cleaned.map(r=>({ session_id: session.id, rank:r.rank||'', name:r.name, tablets:r.tablets||0, monsters:r.monsters||0, kills:r.kills||0, assists:r.assists||0, deaths:r.deaths||0, score:r.score||0 }));
   await sb.from('session_entries').insert(entryRows);
 
+  const savedDate = draftDate;
   draftEntries=[]; draftEventName='WoE'; draftOpposingGuild=''; draftRole=''; draftOurScore=''; draftOpponentScore='';
   await loadSessions();
   renderStatStrip();
-  setStatus('Session saved.', 'ok');
+  setStatus('Session saved. Head to Session Log or Overview when ready to post the war report to Discord.', 'ok');
   expandedSessionId = session.id;
   switchTab('log');
 }
@@ -870,10 +1090,19 @@ function renderSessionBody(id){
       `).join('')}</tbody>
     </table>
     ${absentBlock}
-    <div style="display:flex; justify-content:flex-end; margin-top:12px;">
-      <button class="btn danger small" data-delete-session="${id}">Delete session</button>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; flex-wrap:wrap; gap:10px;">
+      <span class="status-line" id="discord-status-${id}" style="margin:0;"></span>
+      <div style="display:flex; gap:10px;">
+        <button class="btn ghost small" data-post-discord="${id}">Post to Discord</button>
+        <button class="btn danger small" data-delete-session="${id}">Delete session</button>
+      </div>
     </div>
   `;
+  body.querySelector('[data-post-discord]').addEventListener('click', async ()=>{
+    const statusEl = $('discord-status-'+id);
+    if(statusEl){ statusEl.className='status-line'; statusEl.textContent='Posting…'; }
+    await postDiscordReport(s.date, statusEl);
+  });
   body.querySelector('[data-save-date]').addEventListener('click', async ()=>{
     const newDate = $('edit-date-'+id).value;
     if(!newDate){
