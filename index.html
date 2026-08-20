@@ -917,7 +917,7 @@ async function handleRosterExcelFile(file){
       const header = rows[0].map(c=>String(c||'').trim().toLowerCase());
       const ni = header.indexOf('name');
       if(ni>=0){
-        mmidIdx = header.indexOf('mmid');
+        mmidIdx = header.indexOf('mmid'); if(mmidIdx<0) mmidIdx = header.indexOf('uid');
         nameIdx = ni;
         jobIdx = header.indexOf('job');
         startRow = 1;
@@ -950,7 +950,7 @@ async function handleRosterExcelFile(file){
     renderFullRosterTab();
     setImportStatus('ok', `Imported ${parsed.length} row(s) — ${added} new, ${updated} updated.`);
   }catch(err){
-    setImportStatus('error', "Couldn't read that file. Use a .xlsx, .xls, or .csv with Name (and optionally MMID/Job) columns.");
+    setImportStatus('error', "Couldn't read that file. Use a .xlsx, .xls, or .csv with Name (and optionally UID/Job) columns.");
   }
 }
 
@@ -960,7 +960,7 @@ function exportRosterExcel(){
     const av=(a[fullRosterSort.key]||'').toString(), bv=(b[fullRosterSort.key]||'').toString();
     return av.localeCompare(bv,undefined,{numeric:true}) * (fullRosterSort.dir==='asc'?1:-1);
   });
-  const aoa = [['MMID','Name','Job'], ...sorted.map(m=>[m.mmid||'', m.name||'', m.job||''])];
+  const aoa = [['UID','Name','Job'], ...sorted.map(m=>[m.mmid||'', m.name||'', m.job||''])];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = [{wch:10},{wch:24},{wch:16}];
   const wb = XLSX.utils.book_new();
@@ -978,7 +978,7 @@ function renderFullRosterTab(){
   const arrow = key => fullRosterSort.key===key ? (fullRosterSort.dir==='asc'?' \u25B2':' \u25BC') : '';
   $('fullroster-content').innerHTML = `
     <h2 class="section-title">Full Roster</h2>
-    <p class="section-hint">MMID, Name, and Job — members here are who you can assign into parties and who show up in Attendance.</p>
+    <p class="section-hint">UID, Name, and Job — members here are who you can assign into parties and who show up in Attendance.</p>
     <div class="btn-row" style="margin-top:0; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
       <button class="btn gold small" id="fr-import-btn">Import Excel / CSV</button>
       <input type="file" id="fr-excel-input" accept=".xlsx,.xls,.csv" style="display:none;">
@@ -987,14 +987,14 @@ function renderFullRosterTab(){
     </div>
     <div class="status-line" id="fr-import-status"></div>
     <div class="field-row" style="align-items:flex-end; margin-top:14px;">
-      <div><label>MMID</label><input type="text" id="fr-mmid" placeholder="MM004"></div>
+      <div><label>UID</label><input type="text" id="fr-mmid" placeholder="UID004"></div>
       <div style="flex:2;"><label>Name</label><input type="text" id="fr-name" placeholder="Player name"></div>
       <div style="flex:2;"><label>Job</label><select id="fr-job"></select></div>
       <div style="flex:0 0 auto;"><button class="btn small" id="fr-add-btn">Add</button></div>
     </div>
     <details style="margin:12px 0;"><summary style="cursor:pointer;color:var(--ink-soft);font-size:13px;">Paste a list instead</summary>
       <div style="margin-top:10px;">
-        <textarea id="fr-bulk" rows="4" placeholder="MMID, Name, Job — one per line (tab or comma separated)" style="width:100%;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--ink);padding:8px;font-family:'Inter',sans-serif;"></textarea>
+        <textarea id="fr-bulk" rows="4" placeholder="UID, Name, Job — one per line (tab or comma separated)" style="width:100%;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--ink);padding:8px;font-family:'Inter',sans-serif;"></textarea>
         <button class="btn gold small" id="fr-bulk-btn" style="margin-top:8px;">Add all</button>
       </div>
     </details>
@@ -1009,7 +1009,7 @@ function renderFullRosterTab(){
     <table class="responsive">
       <thead><tr>
         <th></th>
-        <th class="sortable" data-sort-roster="mmid">MMID${arrow('mmid')}</th>
+        <th class="sortable" data-sort-roster="mmid">UID${arrow('mmid')}</th>
         <th class="sortable" data-sort-roster="name">Name${arrow('name')}</th>
         <th class="sortable" data-sort-roster="job">Job${arrow('job')}</th>
         <th></th>
@@ -1017,7 +1017,7 @@ function renderFullRosterTab(){
       <tbody>${sorted.map(m=>`
         <tr class="${frSelected.has(m.id)?'is-selected':''}">
           <td data-label=""><input type="checkbox" class="fr-check" data-fr-check="${m.id}" ${frSelected.has(m.id)?'checked':''}></td>
-          <td data-label="MMID"><input type="text" class="roster-mmid-input" data-fr-field="mmid" data-fr-id="${m.id}" value="${escapeHtml(m.mmid||'')}" placeholder="MMID"></td>
+          <td data-label="UID"><input type="text" class="roster-mmid-input" data-fr-field="mmid" data-fr-id="${m.id}" value="${escapeHtml(m.mmid||'')}" placeholder="UID"></td>
           <td data-label="Name"><input type="text" class="roster-name-input" data-fr-field="name" data-fr-id="${m.id}" value="${escapeHtml(m.name)}" placeholder="Name"></td>
           <td data-label="Job"><div class="job-cell">${jobIconSvg(m.job)}<select class="roster-job-select" data-fr-field="job" data-fr-id="${m.id}"></select></div></td>
           <td data-label=""><button class="row-del" data-fr-remove="${m.id}" title="Delete this member">✕</button></td>
@@ -1082,7 +1082,7 @@ function renderFullRosterTab(){
     const rows = [];
     lines.forEach(line=>{
       const parts = (line.includes('\t')?line.split('\t'):line.split(',')).map(p=>p.trim());
-      if(parts[0] && parts[0].toLowerCase()==='mmid') return;
+      if(parts[0] && ['mmid','uid'].includes(parts[0].toLowerCase())) return;
       if(parts.length>=3) rows.push({guild_id:guildId, mmid:parts[0], name:parts[1], job:parts[2]});
       else if(parts.length===2) rows.push({guild_id:guildId, mmid:'', name:parts[0], job:parts[1]});
       else if(parts.length===1 && parts[0]) rows.push({guild_id:guildId, mmid:'', name:parts[0], job:''});
