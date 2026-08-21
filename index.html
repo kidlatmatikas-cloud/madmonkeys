@@ -431,6 +431,7 @@ async function exportFullBackup(){
 }
 let draftEntries = [];
 let discordAttendees = []; // [{ discordName, matchedName, alreadyRecorded }]
+let discordRole = ''; // 'Elite' | 'Sub' — which scoreboard this Discord screenshot should cross-check against
 let draftEventName = 'WoE';
 let draftDate = todayStr();
 let draftOpposingGuild = '';
@@ -1078,7 +1079,17 @@ function renderNewTab(){
 
     <div style="margin-top:34px; padding-top:24px; border-top:1px solid var(--line-strong);">
       <h3 class="section-title" style="font-size:16px;">Mark Attendance from Discord</h3>
-      <p class="section-hint">Screenshot a Discord voice channel, member list, or check-in messages — this reads out who's there and matches them to your roster for the date above (${escapeHtml(draftDate)}). No stats needed, just confirms who showed up.</p>
+      <p class="section-hint">Screenshot a Discord voice channel, member list, or check-in messages — this reads out who's there and cross-checks it against the ${draftRole||'matching Role'} scoreboard already saved for ${escapeHtml(draftDate)}, so an Elite Discord screenshot only checks against Elite records, not Sub.</p>
+      <div class="field-row" style="margin-bottom:10px;">
+        <div style="flex:0 0 180px;">
+          <label for="nf-discord-role">Which Role Is This?</label>
+          <select id="nf-discord-role">
+            <option value="">— Select role —</option>
+            <option value="Elite">Elite</option>
+            <option value="Sub">Sub</option>
+          </select>
+        </div>
+      </div>
       <div id="nf-discord-dropzone" style="text-align:center; padding:22px 16px; cursor:pointer; border:1px dashed var(--line-strong); margin-bottom:6px;">
         <div style="font-weight:700;">Drop a Discord screenshot or click to browse</div>
         <input type="file" id="nf-discord-file-input" accept="image/*" style="display:none;">
@@ -1088,6 +1099,8 @@ function renderNewTab(){
     </div>
   `;
   renderDraftTable();
+  $('nf-discord-role').value = discordRole || draftRole || '';
+  discordRole = $('nf-discord-role').value;
   renderDiscordReview();
 
   $('nf-event').addEventListener('input', e=>draftEventName=e.target.value);
@@ -1112,6 +1125,10 @@ function renderNewTab(){
   $('nf-discard').addEventListener('click', ()=>{ if(draftEntries.length && !confirm('Discard the current draft?')) return; draftEntries=[]; renderDraftTable(); });
   $('nf-save').addEventListener('click', saveSession);
 
+  $('nf-discord-role').addEventListener('change', e=>{
+    discordRole = e.target.value;
+    if(discordAttendees.length) refreshDiscordAlreadyRecorded();
+  });
   $('nf-discord-dropzone').addEventListener('click', ()=>$('nf-discord-file-input').click());
   $('nf-discord-file-input').addEventListener('change', e=>handleDiscordScan(e.target.files[0]));
   $('nf-discord-dropzone').addEventListener('dragover', e=>{ e.preventDefault(); $('nf-discord-dropzone').style.borderColor='var(--cyan)'; });
@@ -1205,14 +1222,24 @@ function matchRosterName(discordName){
   });
   return match ? match.name : '';
 }
-function namesAlreadyRecordedForDate(date){
+function namesAlreadyRecordedForDateAndRole(date, role){
   const names = new Set();
-  sessions.forEach(s=>{ if(s.date===date) (s.entries||[]).forEach(e=>names.add(e.name)); });
+  sessions.forEach(s=>{ if(s.date===date && s.role===role) (s.entries||[]).forEach(e=>names.add(e.name)); });
   return names;
+}
+function refreshDiscordAlreadyRecorded(){
+  const already = discordRole ? namesAlreadyRecordedForDateAndRole(draftDate, discordRole) : new Set();
+  discordAttendees.forEach(a=>{ a.alreadyRecorded = a.matchedName ? already.has(a.matchedName) : false; });
+  renderDiscordReview();
 }
 async function handleDiscordScan(file){
   if(!file) return;
   const statusEl = $('nf-discord-status');
+  if(!discordRole){
+    statusEl.className='status-line error';
+    statusEl.textContent = 'Pick whether this is Elite or Sub before scanning, so it checks against the right scoreboard.';
+    return;
+  }
   statusEl.className='status-line'; statusEl.textContent='Reading '+file.name+'…';
   try{
     const base64 = await fileToBase64(file);
@@ -1224,7 +1251,7 @@ async function handleDiscordScan(file){
     if(!res.ok) throw new Error(data.error || 'Scan failed');
     if(!data.names || data.names.length===0) throw new Error('No names found');
 
-    const already = namesAlreadyRecordedForDate(draftDate);
+    const already = namesAlreadyRecordedForDateAndRole(draftDate, discordRole);
     const existingDiscordNames = new Set(discordAttendees.map(a=>a.discordName));
     const newRows = data.names
       .filter(n=>!existingDiscordNames.has(n))
@@ -1249,6 +1276,13 @@ function renderDiscordReview(){
   const rosterOptions = (selected) => '<option value="">— No match —</option>' + roster.map(m=>`<option value="${escapeHtml(m.name)}" ${m.name===selected?'selected':''}>${escapeHtml(m.name)}</option>`).join('');
   const willRecord = discordAttendees.filter(a=>a.matchedName && !a.alreadyRecorded).length;
 
+  // Reverse check: who's on the {role} scoreboard for this date but wasn't
+  // spotted in this Discord screenshot — could mean they left the call
+  // early, joined a different channel, or the screenshot missed them.
+  const matchedNames = new Set(discordAttendees.map(a=>a.matchedName).filter(Boolean));
+  const onScoreboard = discordRole ? namesAlreadyRecordedForDateAndRole(draftDate, discordRole) : new Set();
+  const notInDiscord = [...onScoreboard].filter(n=>!matchedNames.has(n));
+
   wrap.innerHTML = `
     <table class="responsive" style="margin-top:14px;">
       <thead><tr><th>Discord Name</th><th>Matched Roster Member</th><th></th></tr></thead>
@@ -1257,12 +1291,17 @@ function renderDiscordReview(){
           <td data-label="Discord Name">${escapeHtml(a.discordName)}</td>
           <td data-label="Matched">
             <select data-discord-match="${i}">${rosterOptions(a.matchedName)}</select>
-            ${a.alreadyRecorded ? '<span style="font-size:11px;color:var(--ink-soft);margin-left:6px;">already recorded</span>' : (!a.matchedName ? '<span style="font-size:11px;color:var(--magenta);margin-left:6px;">no match</span>' : '')}
+            ${a.alreadyRecorded ? `<span style="font-size:11px;color:var(--ink-soft);margin-left:6px;">already on ${escapeHtml(discordRole)} scoreboard</span>` : (!a.matchedName ? '<span style="font-size:11px;color:var(--magenta);margin-left:6px;">no match</span>' : '')}
           </td>
           <td data-label=""><button class="row-del" data-discord-remove="${i}">✕</button></td>
         </tr>
       `).join('')}</tbody>
     </table>
+    ${notInDiscord.length ? `
+    <div style="margin-top:14px; padding:12px 16px; border:1px solid var(--gold); background:rgba(220,154,61,.06);">
+      <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--gold);margin-bottom:8px;">On the ${escapeHtml(discordRole)} scoreboard but not spotted in this screenshot (${notInDiscord.length})</div>
+      ${notInDiscord.map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('')}
+    </div>` : ''}
     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; flex-wrap:wrap; gap:10px;">
       <span style="font-size:12.5px;color:var(--ink-soft);">${willRecord} member(s) will be marked present</span>
       <div style="display:flex; gap:8px;">
@@ -1275,7 +1314,7 @@ function renderDiscordReview(){
   wrap.querySelectorAll('[data-discord-match]').forEach(sel=>sel.addEventListener('change', e=>{
     const idx = +sel.dataset.discordMatch;
     discordAttendees[idx].matchedName = e.target.value;
-    const already = namesAlreadyRecordedForDate(draftDate);
+    const already = discordRole ? namesAlreadyRecordedForDateAndRole(draftDate, discordRole) : new Set();
     discordAttendees[idx].alreadyRecorded = e.target.value ? already.has(e.target.value) : false;
     renderDiscordReview();
   }));
@@ -1289,13 +1328,13 @@ function renderDiscordReview(){
 async function recordDiscordAttendance(){
   const toRecord = discordAttendees.filter(a=>a.matchedName && !a.alreadyRecorded);
   if(toRecord.length===0){ setStatus('Nothing new to record — everyone matched is already accounted for.', 'error'); return; }
-  if(!confirm(`Mark ${toRecord.length} member(s) present for ${draftDate}?`)) return;
+  if(!confirm(`Mark ${toRecord.length} member(s) present for ${draftDate} (${discordRole})?`)) return;
 
-  let checkinSession = sessions.find(s=>s.date===draftDate && s.event_name==='Discord Check-In');
+  let checkinSession = sessions.find(s=>s.date===draftDate && s.role===discordRole && s.event_name==='Discord Check-In');
   let sessionId = checkinSession ? checkinSession.id : null;
   if(!sessionId){
     const { data, error } = await sb.from('sessions').insert({
-      guild_id: guildId, event_name: 'Discord Check-In', date: draftDate, role: null
+      guild_id: guildId, event_name: 'Discord Check-In', date: draftDate, role: discordRole
     }).select('id').single();
     if(error){ setStatus("Couldn't record attendance.", 'error'); return; }
     sessionId = data.id;
@@ -1311,7 +1350,7 @@ async function recordDiscordAttendance(){
   await loadSessions();
   renderStatStrip();
   renderNewTab();
-  setStatus(`Marked ${rows.length} member(s) present for ${draftDate}.`, 'ok');
+  setStatus(`Marked ${rows.length} member(s) present for ${draftDate} (${discordRole}).`, 'ok');
 }
 
 /* ========================= Discord report ========================= */
