@@ -2157,13 +2157,29 @@ function computePartyReport(l){
       const assists = members.reduce((s,m)=>s+m.assists,0);
       const deaths = members.reduce((s,m)=>s+m.deaths,0);
       const tablets = members.reduce((s,m)=>s+m.tablets,0);
-      return { name:party.name, memberCount:members.length, members, kills, assists, deaths, tablets };
+      const totalScore = members.reduce((s,m)=>s+m.score,0);
+      const avgScore = members.length ? totalScore/members.length : 0;
+      return { name:party.name, memberCount:members.length, members, kills, assists, deaths, tablets, totalScore, avgScore };
     });
+    const totalMembers = parties.reduce((s,p)=>s+p.memberCount,0);
     const totals = parties.reduce((acc,p)=>({
-      kills: acc.kills+p.kills, assists: acc.assists+p.assists, deaths: acc.deaths+p.deaths, tablets: acc.tablets+p.tablets
-    }), {kills:0, assists:0, deaths:0, tablets:0});
+      kills: acc.kills+p.kills, assists: acc.assists+p.assists, deaths: acc.deaths+p.deaths, tablets: acc.tablets+p.tablets, totalScore: acc.totalScore+p.totalScore
+    }), {kills:0, assists:0, deaths:0, tablets:0, totalScore:0});
+    totals.avgScore = totalMembers ? totals.totalScore/totalMembers : 0;
     return { teamName:team.name, parties, totals };
   });
+}
+let partyReportSort = { key:null, dir:'desc' };
+let partyReportOpen = false;
+function sortPartyReportBy(key){
+  if(partyReportSort.key===key){ partyReportSort.dir = partyReportSort.dir==='desc' ? 'asc' : 'desc'; }
+  else { partyReportSort = { key, dir:'desc' }; }
+  renderEditor();
+}
+function partyReportHeader(label, key){
+  const active = partyReportSort.key===key;
+  const arrow = active ? (partyReportSort.dir==='desc' ? ' \u25BC' : ' \u25B2') : '';
+  return `<th data-sort-key="${key}" style="cursor:pointer;user-select:none;${active?'color:var(--gold);':''}">${label}${arrow}</th>`;
 }
 function tplPartyReport(l){
   const day = getSessionDays().find(d=>d.date===l.date);
@@ -2174,13 +2190,27 @@ function tplPartyReport(l){
     </details>`;
   }
   const report = computePartyReport(l);
-  return `<details class="hud-panel" style="margin-bottom:20px;">
+  const sortKey = partyReportSort.key;
+  const sortDir = partyReportSort.dir;
+  if(sortKey){
+    report.forEach(team=>{
+      team.parties.sort((a,b)=> sortDir==='desc' ? b[sortKey]-a[sortKey] : a[sortKey]-b[sortKey]);
+    });
+  }
+  return `<details id="party-report-details" class="hud-panel" style="margin-bottom:20px;" ${partyReportOpen ? 'open' : ''}>
     <summary style="cursor:pointer;font-weight:700;color:var(--cyan-dim);">Party Report — ${escapeHtml(l.date)}</summary>
-    <p class="section-hint" style="margin:8px 0 0;">Click a party to see each member's individual score.</p>
+    <p class="section-hint" style="margin:8px 0 0;">Click a party to see each member's individual score. Click a column header to sort by it.</p>
     ${report.map((team,ti)=>`
       <h4 style="margin:14px 0 6px;font-size:13px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;">${escapeHtml(team.teamName)}</h4>
       <table class="responsive">
-        <thead><tr><th></th><th>Party</th><th>Players</th><th>Kills</th><th>Assists</th><th>Tablets</th><th>Deaths</th></tr></thead>
+        <thead><tr>
+          <th></th><th>Party</th><th>Players</th>
+          ${partyReportHeader('Kills','kills')}
+          ${partyReportHeader('Assists','assists')}
+          ${partyReportHeader('Tablets','tablets')}
+          ${partyReportHeader('Deaths','deaths')}
+          ${partyReportHeader('Avg Score','avgScore')}
+        </tr></thead>
         <tbody>
           ${team.parties.map((p,pi)=>`
             <tr class="party-report-row" data-toggle-party="${ti}-${pi}" style="cursor:pointer;">
@@ -2191,9 +2221,10 @@ function tplPartyReport(l){
               <td data-label="Assists">${p.assists}</td>
               <td data-label="Tablets">${p.tablets}</td>
               <td data-label="Deaths">${p.deaths}</td>
+              <td data-label="Avg Score">${p.avgScore.toFixed(1)}</td>
             </tr>
             <tr class="party-report-detail" id="pr-detail-${ti}-${pi}" style="display:none;">
-              <td colspan="7" style="padding:0 0 10px 26px;">
+              <td colspan="8" style="padding:0 0 10px 26px;">
                 ${p.members.length ? `
                   <table class="responsive" style="margin-top:4px;">
                     <thead><tr><th>Name</th><th>Kills</th><th>Assists</th><th>Tablets</th><th>Deaths</th><th>Score</th></tr></thead>
@@ -2212,7 +2243,7 @@ function tplPartyReport(l){
                         <td data-label="Assists">${p.assists}</td>
                         <td data-label="Tablets">${p.tablets}</td>
                         <td data-label="Deaths">${p.deaths}</td>
-                        <td data-label="Score">${p.members.reduce((s,m)=>s+m.score,0)}</td>
+                        <td data-label="Score">${p.totalScore}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -2228,6 +2259,7 @@ function tplPartyReport(l){
             <td data-label="Assists">${team.totals.assists}</td>
             <td data-label="Tablets">${team.totals.tablets}</td>
             <td data-label="Deaths">${team.totals.deaths}</td>
+            <td data-label="Avg Score">${team.totals.avgScore.toFixed(1)}</td>
           </tr>
         </tbody>
       </table>
@@ -2355,6 +2387,11 @@ function renderEditor(){
     detail.style.display = isOpen ? 'none' : 'table-row';
     if(caret) caret.innerHTML = isOpen ? '&#9656;' : '&#9662;';
   }));
+  document.querySelectorAll('[data-sort-key]').forEach(th=>th.addEventListener('click', ()=>{
+    sortPartyReportBy(th.dataset.sortKey);
+  }));
+  const reportDetails = document.getElementById('party-report-details');
+  if(reportDetails) reportDetails.addEventListener('toggle', ()=>{ partyReportOpen = reportDetails.open; });
 }
 function tplTeam(team, ti){
   return `
