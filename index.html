@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -63,6 +64,9 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
 .job-icon{ width:20px; height:20px; flex:0 0 auto; display:inline-block; vertical-align:middle; }
 .hidden{ display:none !important; }
 .chip{ display:inline-flex; align-items:center; gap:7px; background:var(--bg-panel-2); border:1px solid var(--line-strong); border-radius:20px; padding:7px 14px; margin:4px 5px 4px 0; font-size:14px; font-family:'Inter',sans-serif; font-weight:500; }
+.job-filter-chip{ color:var(--ink); cursor:pointer; margin:0; transition:border-color .12s, background .12s; }
+.job-filter-chip:hover{ border-color:var(--ink-soft); }
+.job-filter-chip.active{ border-color:var(--cyan); background:rgba(91,141,239,.14); color:var(--cyan); }
 .chip button{ background:none; border:none; color:var(--magenta); cursor:pointer; font-size:13px; padding:0; }
 .status-pill{ display:inline-block; padding:2px 10px; border-radius:20px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
 .status-pill.status-pending{ background:rgba(220,154,61,.15); color:var(--gold); }
@@ -410,6 +414,7 @@ let currentTab = 'overview';
 let expandedSessionId = null;
 let expandedDiscordLogKey = null;
 let fullRosterSort = { key:'name', dir:'asc' };
+let fullRosterJobFilter = new Set(); // multi-select — empty means "All Jobs"
 let frSelected = new Set();
 let attendanceSort = { key:'attendance', dir:'desc' };
 
@@ -1797,7 +1802,8 @@ async function syncJobAcrossLineups(name, newJob){
 }
 function renderFullRosterTab(){
   frSelected = new Set([...frSelected].filter(id=>roster.some(m=>m.id===id)));
-  const sorted = [...roster].sort((a,b)=>{
+  const filtered = fullRosterJobFilter.size ? roster.filter(m=>fullRosterJobFilter.has(m.job)) : roster;
+  const sorted = [...filtered].sort((a,b)=>{
     const av=(a[fullRosterSort.key]||'').toString(), bv=(b[fullRosterSort.key]||'').toString();
     return av.localeCompare(bv,undefined,{numeric:true}) * (fullRosterSort.dir==='asc'?1:-1);
   });
@@ -1824,7 +1830,13 @@ function renderFullRosterTab(){
         <button class="btn gold small" id="fr-bulk-btn" style="margin-top:8px;">Add all</button>
       </div>
     </details>
-    <h3 style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin:16px 0 0;">${roster.length} member${roster.length===1?'':'s'}</h3>
+    <div style="margin:16px 0 0;">
+      <h3 style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px;">${fullRosterJobFilter.size ? `${sorted.length} of ${roster.length} members — ${[...fullRosterJobFilter].map(escapeHtml).join(', ')}` : `${roster.length} member${roster.length===1?'':'s'}`}</h3>
+      <div style="display:flex; flex-wrap:wrap; gap:7px;">
+        <button class="chip job-filter-chip ${fullRosterJobFilter.size===0?'active':''}" data-job-filter="">All Jobs</button>
+        ${JOB_OPTIONS.map(j=>`<button class="chip job-filter-chip ${fullRosterJobFilter.has(j)?'active':''}" data-job-filter="${escapeHtml(j)}">${jobIconSvg(j)}${escapeHtml(j)}</button>`).join('')}
+      </div>
+    </div>
     ${sorted.length ? `
     ${isAdmin() ? `
     <div class="roster-toolbar">
@@ -1850,7 +1862,7 @@ function renderFullRosterTab(){
           ${isAdmin() ? `<td data-label=""><button class="row-del" data-fr-remove="${m.id}" title="Delete this member">✕</button></td>` : ''}
         </tr>
       `).join('')}</tbody>
-    </table>` : '<div class="empty-state">No members added yet.</div>'}
+    </table>` : `<div class="empty-state">${fullRosterJobFilter.size ? `No members with ${[...fullRosterJobFilter].map(escapeHtml).join(', ')}.` : 'No members added yet.'}</div>`}
   `;
   populateJobSelect($('fr-job'));
   sorted.forEach(m=>{
@@ -1861,6 +1873,13 @@ function renderFullRosterTab(){
   $('fr-import-btn').addEventListener('click', ()=>$('fr-excel-input').click());
   $('fr-excel-input').addEventListener('change', e=>handleRosterExcelFile(e.target.files[0]));
   $('fr-export-btn').addEventListener('click', exportRosterExcel);
+  document.querySelectorAll('[data-job-filter]').forEach(chip=>chip.addEventListener('click', ()=>{
+    const job = chip.dataset.jobFilter;
+    if(job===''){ fullRosterJobFilter.clear(); }
+    else if(fullRosterJobFilter.has(job)){ fullRosterJobFilter.delete(job); }
+    else { fullRosterJobFilter.add(job); }
+    renderFullRosterTab();
+  }));
 
   const deleteSelBtn = $('fr-delete-selected-btn');
   if(deleteSelBtn){
