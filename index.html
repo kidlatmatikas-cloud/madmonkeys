@@ -2105,6 +2105,110 @@ function tplAbsences(){
     </div>
   ` : ''}</div>`;
 }
+function computePartyReport(l){
+  const day = getSessionDays().find(d=>d.date===l.date);
+  const entries = day ? day.entries : [];
+  // Multiple entries can exist for the same name on the same day (e.g. a
+  // player logged in both an Elite and a Sub scoreboard) — sum every
+  // matching row, not just the first.
+  const byName = {};
+  entries.forEach(e=>{
+    if(!byName[e.name]) byName[e.name] = [];
+    byName[e.name].push(e);
+  });
+  return l.teams.map(team=>{
+    const parties = team.parties.map(party=>{
+      const members = party.slots.filter(s=>s.name).map(slot=>{
+        let kills=0, assists=0, deaths=0, tablets=0, score=0;
+        (byName[slot.name]||[]).forEach(e=>{
+          kills += e.kills||0; assists += e.assists||0; deaths += e.deaths||0; score += e.score||0;
+          // "Tablets Taken" only means something on an Elite scoreboard —
+          // see the note in computeRosterStats for why.
+          if(e._role==='Elite') tablets += e.tablets||0;
+        });
+        return { name:slot.name, job:slot.job||'', kills, assists, deaths, tablets, score };
+      });
+      const kills = members.reduce((s,m)=>s+m.kills,0);
+      const assists = members.reduce((s,m)=>s+m.assists,0);
+      const deaths = members.reduce((s,m)=>s+m.deaths,0);
+      const tablets = members.reduce((s,m)=>s+m.tablets,0);
+      return { name:party.name, memberCount:members.length, members, kills, assists, deaths, tablets };
+    });
+    const totals = parties.reduce((acc,p)=>({
+      kills: acc.kills+p.kills, assists: acc.assists+p.assists, deaths: acc.deaths+p.deaths, tablets: acc.tablets+p.tablets
+    }), {kills:0, assists:0, deaths:0, tablets:0});
+    return { teamName:team.name, parties, totals };
+  });
+}
+function tplPartyReport(l){
+  const day = getSessionDays().find(d=>d.date===l.date);
+  if(!day){
+    return `<details class="hud-panel" style="margin-bottom:20px;">
+      <summary style="cursor:pointer;font-weight:700;color:var(--cyan-dim);">Party Report</summary>
+      <p class="section-hint" style="margin-top:10px;">No saved session found for ${l.date||'this lineup\'s date'} yet — save a New Record for that date to see per-party totals here.</p>
+    </details>`;
+  }
+  const report = computePartyReport(l);
+  return `<details class="hud-panel" style="margin-bottom:20px;">
+    <summary style="cursor:pointer;font-weight:700;color:var(--cyan-dim);">Party Report — ${escapeHtml(l.date)}</summary>
+    <p class="section-hint" style="margin:8px 0 0;">Click a party to see each member's individual score.</p>
+    ${report.map((team,ti)=>`
+      <h4 style="margin:14px 0 6px;font-size:13px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;">${escapeHtml(team.teamName)}</h4>
+      <table class="responsive">
+        <thead><tr><th></th><th>Party</th><th>Players</th><th>Kills</th><th>Assists</th><th>Tablets</th><th>Deaths</th></tr></thead>
+        <tbody>
+          ${team.parties.map((p,pi)=>`
+            <tr class="party-report-row" data-toggle-party="${ti}-${pi}" style="cursor:pointer;">
+              <td data-label="" style="width:18px;"><span class="pr-caret" id="pr-caret-${ti}-${pi}">&#9656;</span></td>
+              <td data-label="Party">${escapeHtml(p.name)}</td>
+              <td data-label="Players">${p.memberCount}</td>
+              <td data-label="Kills">${p.kills}</td>
+              <td data-label="Assists">${p.assists}</td>
+              <td data-label="Tablets">${p.tablets}</td>
+              <td data-label="Deaths">${p.deaths}</td>
+            </tr>
+            <tr class="party-report-detail" id="pr-detail-${ti}-${pi}" style="display:none;">
+              <td colspan="7" style="padding:0 0 10px 26px;">
+                ${p.members.length ? `
+                  <table class="responsive" style="margin-top:4px;">
+                    <thead><tr><th>Name</th><th>Kills</th><th>Assists</th><th>Tablets</th><th>Deaths</th><th>Score</th></tr></thead>
+                    <tbody>
+                      ${p.members.map(m=>`<tr>
+                        <td data-label="Name">${jobIconSvg(m.job)} ${escapeHtml(m.name)}</td>
+                        <td data-label="Kills">${m.kills}</td>
+                        <td data-label="Assists">${m.assists}</td>
+                        <td data-label="Tablets">${m.tablets}</td>
+                        <td data-label="Deaths">${m.deaths}</td>
+                        <td data-label="Score">${m.score}</td>
+                      </tr>`).join('')}
+                      <tr style="font-weight:700;background:rgba(220,154,61,.12);color:var(--gold);">
+                        <td data-label="Party Total">${escapeHtml(p.name)} Total</td>
+                        <td data-label="Kills">${p.kills}</td>
+                        <td data-label="Assists">${p.assists}</td>
+                        <td data-label="Tablets">${p.tablets}</td>
+                        <td data-label="Deaths">${p.deaths}</td>
+                        <td data-label="Score">${p.members.reduce((s,m)=>s+m.score,0)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                ` : '<div style="font-size:13px;color:var(--ink-soft);padding:8px 0;">No one is placed in this party yet.</div>'}
+              </td>
+            </tr>
+          `).join('')}
+          <tr style="font-weight:700;border-top:1px solid var(--line);">
+            <td data-label=""></td>
+            <td data-label="Team Total">Team Total</td>
+            <td data-label="Players"></td>
+            <td data-label="Kills">${team.totals.kills}</td>
+            <td data-label="Assists">${team.totals.assists}</td>
+            <td data-label="Tablets">${team.totals.tablets}</td>
+            <td data-label="Deaths">${team.totals.deaths}</td>
+          </tr>
+        </tbody>
+      </table>
+    `).join('')}
+  </details>`;
+}
 function backToList(){
   currentLineup = null;
   switchTab('parties');
@@ -2151,6 +2255,7 @@ function renderEditor(){
       </div>
     </div>
     ${tplAbsences()}
+    ${tplPartyReport(l)}
     ${l.teams.map((team,ti)=>tplTeam(team,ti)).join('')}
     <button class="btn gold small" id="add-team-btn" style="margin-bottom:20px;">+ Add Team</button>
     <h3 class="section-title" style="font-size:14px;">Unassigned (${unassigned.length})</h3>
@@ -2214,6 +2319,15 @@ function renderEditor(){
   document.querySelectorAll('[data-slot]').forEach(btn=>btn.addEventListener('click', ()=>{
     const [ti,pi,si] = btn.dataset.slot.split('-').map(Number);
     openPicker(ti,pi,si);
+  }));
+  document.querySelectorAll('[data-toggle-party]').forEach(row=>row.addEventListener('click', ()=>{
+    const key = row.dataset.toggleParty;
+    const detail = document.getElementById(`pr-detail-${key}`);
+    const caret = document.getElementById(`pr-caret-${key}`);
+    if(!detail) return;
+    const isOpen = detail.style.display !== 'none';
+    detail.style.display = isOpen ? 'none' : 'table-row';
+    if(caret) caret.innerHTML = isOpen ? '&#9656;' : '&#9662;';
   }));
 }
 function tplTeam(team, ti){
