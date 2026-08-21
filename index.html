@@ -85,6 +85,10 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
 @media (max-width:1000px){ .party-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
 @media (max-width:520px){ .party-grid{ grid-template-columns:1fr; } }
 .party-card{ border:1px solid var(--line); background:var(--bg-panel-2); border-radius:9px; padding:16px; }
+.party-card.party-incomplete{ border-color:var(--gold); }
+.party-fill-badge{ font-family:'Inter',sans-serif; font-size:11.5px; font-weight:700; padding:2px 8px; border-radius:10px; flex:0 0 auto; }
+.party-fill-badge.full{ color:var(--green); background:rgba(62,207,142,.12); }
+.party-fill-badge.incomplete{ color:var(--gold); background:rgba(220,154,61,.14); }
 .party-card-head{ display:flex; justify-content:space-between; align-items:center; font-weight:700; font-size:15px; color:var(--cyan-dim); margin-bottom:10px; }
 .party-name-input{ background:transparent; border:none; color:var(--cyan-dim); font-weight:700; font-size:15px; padding:2px 0; flex:1 1 auto; border-bottom:1px dashed transparent; }
 .party-name-input:hover,.party-name-input:focus{ border-bottom:1px dashed var(--cyan-dim); outline:none; }
@@ -2514,10 +2518,14 @@ function tplTeam(team, ti, crossBooked){
 function tplParty(party, ti, pi, crossBooked){
   const counts = countByName();
   const warnings = partyJobWarnings(party);
+  const filledCount = party.slots.filter(s=>s.name).length;
+  const totalSlots = party.slots.length;
+  const isFull = filledCount === totalSlots;
   return `
-    <div class="party-card">
+    <div class="party-card ${isFull?'':'party-incomplete'}">
       <div class="party-card-head">
         <input class="party-name-input" data-party-name="${ti}-${pi}" value="${escapeHtml(party.name)}">
+        <span class="party-fill-badge ${isFull?'full':'incomplete'}">${filledCount}/${totalSlots}</span>
         <button style="background:none;border:none;color:var(--ink-soft);cursor:pointer;font-size:15px;" data-remove-party="${ti}-${pi}" title="Remove this party">&times;</button>
       </div>
       ${party.slots.map((slot,si)=>{
