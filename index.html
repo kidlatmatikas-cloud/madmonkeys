@@ -1932,6 +1932,29 @@ async function syncNameAcrossSessions(oldName, newName){
     await sb.from('session_entries').update({ name: newName }).eq('name', oldName).in('session_id', sessionIds);
   }
 }
+// Deleting a roster member should also clear any party slot they were
+// placed in — otherwise the lineup keeps showing a name that no longer
+// exists on the roster at all.
+async function clearMemberFromLineups(name){
+  const affected = lineups.filter(l => (l.teams||[]).some(t => (t.parties||[]).some(p => (p.slots||[]).some(s => s.name === name))));
+  for(const lineup of affected){
+    const updatedTeams = lineup.teams.map(t => ({
+      ...t,
+      parties: t.parties.map(p => ({
+        ...p,
+        slots: p.slots.map(s => s.name === name ? { name: '', job: '' } : s)
+      }))
+    }));
+    lineup.teams = updatedTeams;
+    await sb.from('party_lineups').update({ teams: updatedTeams }).eq('id', lineup.id);
+    if(currentLineup && currentLineup.id === lineup.id){
+      currentLineup.teams = updatedTeams;
+      if(document.getElementById('editor-tab') && !document.getElementById('editor-tab').classList.contains('hidden')){
+        renderEditor();
+      }
+    }
+  }
+}
 function renderFullRosterTab(){
   frSelected = new Set([...frSelected].filter(id=>roster.some(m=>m.id===id)));
   const searchTerm = fullRosterSearch.trim().toLowerCase();
@@ -2060,9 +2083,11 @@ function renderFullRosterTab(){
     deleteSelBtn.addEventListener('click', async ()=>{
       if(!isAdmin()) return;
       if(frSelected.size===0) return;
-      if(!confirm(`Delete ${frSelected.size} selected member(s)? This can't be undone.`)) return;
+      if(!confirm(`Delete ${frSelected.size} selected member(s)? This can't be undone. They'll also be cleared from any party they're currently placed in.`)) return;
       const ids = [...frSelected];
+      const names = roster.filter(m => ids.includes(m.id)).map(m => m.name);
       await sb.from('roster_members').delete().in('id', ids);
+      for(const name of names){ await clearMemberFromLineups(name); }
       frSelected.clear();
       await loadRoster();
       renderStatStrip();
@@ -2101,8 +2126,9 @@ function renderFullRosterTab(){
   document.querySelectorAll('[data-fr-remove]').forEach(btn=>btn.addEventListener('click', async ()=>{
     if(!isAdmin()) return;
     const member = roster.find(m=>m.id===btn.dataset.frRemove);
-    if(!confirm(`Delete ${member ? member.name : 'this member'} from the roster? This can't be undone.`)) return;
+    if(!confirm(`Delete ${member ? member.name : 'this member'} from the roster? This can't be undone. They'll also be cleared from any party they're currently placed in.`)) return;
     await sb.from('roster_members').delete().eq('id', btn.dataset.frRemove);
+    if(member) await clearMemberFromLineups(member.name);
     await loadRoster(); renderStatStrip(); renderFullRosterTab();
     setStatus('Member deleted.', 'ok');
   }));
