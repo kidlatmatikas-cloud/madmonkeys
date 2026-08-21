@@ -2508,9 +2508,10 @@ function renderPickerOptions(){
   let list = roster.slice();
   if(jobFilter) list = list.filter(m=>(m.job||'')===jobFilter);
   if(search) list = list.filter(m=>m.name.toLowerCase().includes(search));
+  const absentNames = new Set(currentLineupAbsences.filter(a=>a.absent_date===(currentLineup.date||'')).map(a=>a.member_name));
   list = list.filter(m=>{
     const usedElsewhere = m.name===currentVal ? (counts[m.name]||0)>1 : (counts[m.name]||0)>0;
-    return !usedElsewhere;
+    return !usedElsewhere && !(absentNames.has(m.name) && m.name!==currentVal);
   });
   list.sort((a,b)=>a.name.localeCompare(b.name));
 
