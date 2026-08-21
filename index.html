@@ -441,6 +441,7 @@ let draftEntries = [];
 let discordAttendees = []; // [{ discordName, matchedName, alreadyRecorded }]
 let discordRole = ''; // 'Elite' | 'Sub' — which scoreboard this Discord screenshot should cross-check against
 let discordAttendanceLog = []; // loaded from the discord_attendance table — the persistent, browsable log
+let eliteCapacity = 40, subCapacity = 40; // war-slot caps, not tied to specific roster names
 let draftEventName = 'WoE';
 let draftDate = todayStr();
 let draftOpposingGuild = '';
@@ -681,9 +682,11 @@ async function boot(){
     currentOfficer.role = me.role;
     $('officers-tab-btn').classList.toggle('hidden', currentOfficer.role !== 'admin');
   }
-  const { data: guild } = await sb.from('guild_settings').select('id,name').eq('id', guildId).single();
+  const { data: guild } = await sb.from('guild_settings').select('id,name,elite_capacity,sub_capacity').eq('id', guildId).single();
   $('guild-name-input').value = (guild && guild.name) || 'Your Guild';
   $('masthead-sub').textContent = 'Officer Dashboard';
+  eliteCapacity = (guild && guild.elite_capacity) || 40;
+  subCapacity = (guild && guild.sub_capacity) || 40;
   $('guild-name-input').addEventListener('change', async (e)=>{
     const newName = e.target.value.trim() || 'Your Guild';
     e.target.value = newName;
@@ -1505,8 +1508,18 @@ function renderDiscordLogTab(){
 
   $('discordlog-content').innerHTML = `
     <h2 class="section-title">Discord Attendance Log</h2>
-    ${list.length===0 ? '<p class="section-hint">No Discord attendance logged yet.</p><div class="empty-state">Scan a Discord screenshot in New Record to get started.</div>' : `
-    <p class="section-hint">${list.length} date${list.length===1?'':'s'} — everyone confirmed present via a Discord screenshot, split out by Elite and Sub. Tap a date to see who was confirmed and who wasn't.</p>
+    <p class="section-hint">Everyone confirmed present via a Discord screenshot, split out by Elite and Sub. Attendance is measured against your war-slot caps below, not your full roster — Elite and Sub each only have a fixed number of slots, not a fixed list of who fills them.</p>
+    <div class="field-row" style="max-width:420px; margin-bottom:18px;">
+      <div>
+        <label for="dlog-elite-cap">Elite Slots</label>
+        <input type="number" id="dlog-elite-cap" min="1" value="${eliteCapacity}">
+      </div>
+      <div>
+        <label for="dlog-sub-cap">Sub Slots</label>
+        <input type="number" id="dlog-sub-cap" min="1" value="${subCapacity}">
+      </div>
+    </div>
+    ${list.length===0 ? '<div class="empty-state">Scan a Discord screenshot in New Record to get started.</div>' : `
     <div>
       ${list.map(g=>{
         const total = g.Elite.length + g.Sub.length;
@@ -1515,8 +1528,8 @@ function renderDiscordLogTab(){
             <div>
               <div class="session-title">${escapeHtml(g.date)}</div>
               <div class="session-meta" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                ${g.Elite.length ? `<span class="role-badge role-elite">Elite: ${g.Elite.length}</span>` : ''}
-                ${g.Sub.length ? `<span class="role-badge role-sub">Sub: ${g.Sub.length}</span>` : ''}
+                ${g.Elite.length ? `<span class="role-badge role-elite">Elite: ${g.Elite.length}/${eliteCapacity}</span>` : ''}
+                ${g.Sub.length ? `<span class="role-badge role-sub">Sub: ${g.Sub.length}/${subCapacity}</span>` : ''}
               </div>
             </div>
             <div class="session-meta">${total} total</div>
@@ -1526,6 +1539,18 @@ function renderDiscordLogTab(){
       }).join('')}
     </div>`}
   `;
+  $('dlog-elite-cap').addEventListener('change', async e=>{
+    const val = Math.max(1, parseInt(e.target.value,10) || 40);
+    eliteCapacity = val; e.target.value = val;
+    await sb.from('guild_settings').update({ elite_capacity: val }).eq('id', guildId);
+    renderDiscordLogTab();
+  });
+  $('dlog-sub-cap').addEventListener('change', async e=>{
+    const val = Math.max(1, parseInt(e.target.value,10) || 40);
+    subCapacity = val; e.target.value = val;
+    await sb.from('guild_settings').update({ sub_capacity: val }).eq('id', guildId);
+    renderDiscordLogTab();
+  });
   document.querySelectorAll('[data-toggle-discordlog]').forEach(el=>el.addEventListener('click', ()=>{
     const key = el.dataset.toggleDiscordlog;
     expandedDiscordLogKey = expandedDiscordLogKey===key ? null : key;
@@ -1536,20 +1561,24 @@ function renderDiscordLogTab(){
     if(group) renderDiscordLogBody(group);
   }
 }
-function discordLogRoleSection(roleLabel, roleClass, members){
-  const presentSet = new Set(members);
-  const absentees = roster.filter(m=>!presentSet.has(m.name));
+function discordLogRoleSection(roleLabel, roleClass, members, capacity, date, role){
+  const confirmed = members.length;
+  const empty = Math.max(0, capacity - confirmed);
+  const matchedSet = new Set(members);
+  const onScoreboard = namesOnScoreboardForDateAndRole(date, role);
+  const missingFromDiscord = [...onScoreboard].filter(n=>!matchedSet.has(n)).sort();
   return `
     <div style="margin-bottom:20px;">
-      <div style="display:flex; align-items:center; gap:8px; margin-bottom:9px;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:9px; flex-wrap:wrap;">
         <span class="role-badge ${roleClass}">${roleLabel}</span>
-        <span style="font-size:12px;color:var(--ink-soft);">${members.length} confirmed</span>
+        <span style="font-size:13px; font-weight:700; color:var(--ink);">${confirmed}/${capacity} attended</span>
+        <span style="font-size:12px;color:var(--magenta);">${empty} slot${empty===1?'':'s'} empty</span>
       </div>
       ${members.length ? [...members].sort().map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('') : `<div style="font-size:13px;color:var(--ink-soft);">No one logged for ${roleLabel} on this date.</div>`}
-      ${roster.length ? `
+      ${missingFromDiscord.length ? `
       <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);">
-        <div style="font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--magenta);margin-bottom:7px;">Absent — ${roleLabel} (${absentees.length} of ${roster.length})</div>
-        ${absentees.length ? absentees.map(m=>`<span class="chip">${escapeHtml(m.name)}${m.job?' · '+escapeHtml(m.job):''}</span>`).join('') : '<div style="font-size:13px;color:var(--ink-soft);">Everyone on the roster was confirmed.</div>'}
+        <div style="font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--gold);margin-bottom:7px;">On the ${roleLabel} scoreboard for this date, but not spotted in Discord (${missingFromDiscord.length})</div>
+        ${missingFromDiscord.map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('')}
       </div>` : ''}
     </div>
   `;
@@ -1559,8 +1588,8 @@ function renderDiscordLogBody(group){
   if(!body) return;
   body.innerHTML = `
     <div style="padding:14px 18px 18px;">
-      ${discordLogRoleSection('Elite', 'role-elite', group.Elite)}
-      ${discordLogRoleSection('Sub', 'role-sub', group.Sub)}
+      ${discordLogRoleSection('Elite', 'role-elite', group.Elite, eliteCapacity, group.date, 'Elite')}
+      ${discordLogRoleSection('Sub', 'role-sub', group.Sub, subCapacity, group.date, 'Sub')}
       ${isAdmin() ? `<div style="display:flex; justify-content:flex-end; gap:8px; margin-top:6px;">
         ${group.Elite.length ? `<button class="btn danger small" data-delete-discordlog="Elite">Delete Elite log</button>` : ''}
         ${group.Sub.length ? `<button class="btn danger small" data-delete-discordlog="Sub">Delete Sub log</button>` : ''}
