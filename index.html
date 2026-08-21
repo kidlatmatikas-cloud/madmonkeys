@@ -1311,7 +1311,7 @@ function renderDiscordReview(){
       <span style="font-size:12.5px;color:var(--ink-soft);">${discordAttendees.length} scanned — ${alreadyCount} already on the ${escapeHtml(discordRole)} scoreboard, ${noMatchCount} unmatched, <strong style="color:var(--ink);">${willRecord} new</strong> to record</span>
       <div style="display:flex; gap:8px;">
         <button class="btn ghost small" id="nf-discord-clear">Clear</button>
-        <button class="btn gold small" id="nf-discord-record">Record Attendance</button>
+        <button class="btn gold small" id="nf-discord-record" ${willRecord===0?'disabled title="Everyone matched is already on the scoreboard — nothing to add."':''}>${willRecord===0?'Fully Covered':'Record Attendance'}</button>
       </div>
     </div>
   `;
@@ -1332,7 +1332,7 @@ function renderDiscordReview(){
 }
 async function recordDiscordAttendance(){
   const toRecord = discordAttendees.filter(a=>a.matchedName && !a.alreadyRecorded);
-  if(toRecord.length===0){ setStatus('Nothing new to record — everyone matched is already accounted for.', 'error'); return; }
+  if(toRecord.length===0){ setStatus("Nothing new to add — everyone matched is already on the scoreboard. Attendance is fully covered.", 'ok'); return; }
   if(!confirm(`Mark ${toRecord.length} member(s) present for ${draftDate} (${discordRole})?`)) return;
 
   let checkinSession = sessions.find(s=>s.date===draftDate && s.role===discordRole && s.event_name==='Discord Check-In');
