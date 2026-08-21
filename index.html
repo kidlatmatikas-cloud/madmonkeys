@@ -276,6 +276,7 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
       <button class="tab-btn active" data-tab="overview">Overview</button>
       <button class="tab-btn" data-tab="new">New Record</button>
       <button class="tab-btn" data-tab="log">Session Log</button>
+      <button class="tab-btn" data-tab="discordlog">Discord Log</button>
       <button class="tab-btn" data-tab="fullroster">Full Roster</button>
       <button class="tab-btn" data-tab="attendance">Attendance</button>
       <button class="tab-btn" data-tab="parties">Party List</button>
@@ -298,6 +299,12 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
       <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
       <span class="corner corner-bl"></span><span class="corner corner-br"></span>
       <div id="log-content"></div>
+    </div>
+
+    <div id="discordlog-tab" class="hud-panel hidden">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <div id="discordlog-content"></div>
     </div>
 
     <div id="fullroster-tab" class="hud-panel hidden">
@@ -401,6 +408,7 @@ let currentLineup = null;
 let picker = null; // {ti,pi,si}
 let currentTab = 'overview';
 let expandedSessionId = null;
+let expandedDiscordLogKey = null;
 let fullRosterSort = { key:'name', dir:'asc' };
 let frSelected = new Set();
 let attendanceSort = { key:'attendance', dir:'desc' };
@@ -432,6 +440,7 @@ async function exportFullBackup(){
 let draftEntries = [];
 let discordAttendees = []; // [{ discordName, matchedName, alreadyRecorded }]
 let discordRole = ''; // 'Elite' | 'Sub' — which scoreboard this Discord screenshot should cross-check against
+let discordAttendanceLog = []; // loaded from the discord_attendance table — the persistent, browsable log
 let draftEventName = 'WoE';
 let draftDate = todayStr();
 let draftOpposingGuild = '';
@@ -440,7 +449,7 @@ let draftOurScore = '';
 let draftOpponentScore = '';
 
 const $ = (id) => document.getElementById(id);
-const TAB_IDS = ['overview','new','log','fullroster','attendance','parties','officers'];
+const TAB_IDS = ['overview','new','log','discordlog','fullroster','attendance','parties','officers'];
 
 /* ========================= Auth =========================
    Officer accounts now live in the `officers` table (see officers_schema.sql).
@@ -681,7 +690,7 @@ async function boot(){
     await sb.from('guild_settings').update({ name: newName }).eq('id', guildId);
     setStatus('Guild name updated.', 'ok');
   });
-  await Promise.all([loadRoster(), loadLineups(), loadSessions()]);
+  await Promise.all([loadRoster(), loadLineups(), loadSessions(), loadDiscordAttendanceLog()]);
   renderStatStrip();
   switchTab('overview');
 }
@@ -710,6 +719,7 @@ function switchTab(tab){
   if(tab==='overview') renderOverviewTab();
   else if(tab==='new') renderNewTab();
   else if(tab==='log') renderLogTab();
+  else if(tab==='discordlog') renderDiscordLogTab();
   else if(tab==='fullroster') renderFullRosterTab();
   else if(tab==='attendance') renderAttendanceTab();
   else if(tab==='parties') renderLineupsList();
@@ -729,6 +739,10 @@ async function loadLineups(){
 async function loadSessions(){
   const { data } = await sb.from('sessions').select('*, session_entries(*)').eq('guild_id', guildId).order('date', { ascending:false });
   sessions = (data||[]).map(s=>({ ...s, entries: s.session_entries || [] }));
+}
+async function loadDiscordAttendanceLog(){
+  const { data } = await sb.from('discord_attendance').select('*').eq('guild_id', guildId).order('date', { ascending:false });
+  discordAttendanceLog = data || [];
 }
 
 /* ========================= Compute helpers ========================= */
@@ -1225,13 +1239,18 @@ function matchRosterName(discordName){
   });
   return match ? match.name : '';
 }
-function namesAlreadyRecordedForDateAndRole(date, role){
+function namesOnScoreboardForDateAndRole(date, role){
   const names = new Set();
   sessions.forEach(s=>{ if(s.date===date && s.role===role) (s.entries||[]).forEach(e=>names.add(e.name)); });
   return names;
 }
+function namesAlreadyInDiscordLog(date, role){
+  const names = new Set();
+  discordAttendanceLog.forEach(r=>{ if(r.date===date && r.role===role) names.add(r.member_name); });
+  return names;
+}
 function refreshDiscordAlreadyRecorded(){
-  const already = discordRole ? namesAlreadyRecordedForDateAndRole(draftDate, discordRole) : new Set();
+  const already = discordRole ? namesAlreadyInDiscordLog(draftDate, discordRole) : new Set();
   discordAttendees.forEach(a=>{ a.alreadyRecorded = a.matchedName ? already.has(a.matchedName) : false; });
   renderDiscordReview();
 }
@@ -1240,7 +1259,7 @@ async function handleDiscordScan(file){
   const statusEl = $('nf-discord-status');
   if(!discordRole){
     statusEl.className='status-line error';
-    statusEl.textContent = 'Pick whether this is Elite or Sub before scanning, so it checks against the right scoreboard.';
+    statusEl.textContent = 'Pick whether this is Elite or Sub before scanning, so it checks against the right log.';
     return;
   }
   statusEl.className='status-line'; statusEl.textContent='Reading '+file.name+'…';
@@ -1254,7 +1273,7 @@ async function handleDiscordScan(file){
     if(!res.ok) throw new Error(data.error || 'Scan failed');
     if(!data.names || data.names.length===0) throw new Error('No names found');
 
-    const already = namesAlreadyRecordedForDateAndRole(draftDate, discordRole);
+    const already = namesAlreadyInDiscordLog(draftDate, discordRole);
     const existingDiscordNames = new Set(discordAttendees.map(a=>a.discordName));
     const newRows = data.names
       .filter(n=>!existingDiscordNames.has(n))
@@ -1282,10 +1301,11 @@ function renderDiscordReview(){
   const noMatchCount = discordAttendees.filter(a=>!a.matchedName).length;
 
   // Reverse check: who's on the {role} scoreboard for this date but wasn't
-  // spotted in this Discord screenshot — could mean they left the call
-  // early, joined a different channel, or the screenshot missed them.
+  // spotted in this Discord screenshot — purely informational, doesn't
+  // affect what gets logged. Could mean they left the call early, joined
+  // a different channel, or the screenshot missed them.
   const matchedNames = new Set(discordAttendees.map(a=>a.matchedName).filter(Boolean));
-  const onScoreboard = discordRole ? namesAlreadyRecordedForDateAndRole(draftDate, discordRole) : new Set();
+  const onScoreboard = discordRole ? namesOnScoreboardForDateAndRole(draftDate, discordRole) : new Set();
   const notInDiscord = [...onScoreboard].filter(n=>!matchedNames.has(n));
 
   wrap.innerHTML = `
@@ -1296,7 +1316,7 @@ function renderDiscordReview(){
           <td data-label="Discord Name">${escapeHtml(a.discordName)}</td>
           <td data-label="Matched">
             <select data-discord-match="${i}">${rosterOptions(a.matchedName)}</select>
-            ${a.alreadyRecorded ? `<span style="font-size:11px;color:var(--ink-soft);margin-left:6px;">already on ${escapeHtml(discordRole)} scoreboard</span>` : (!a.matchedName ? '<span style="font-size:11px;color:var(--magenta);margin-left:6px;">no match</span>' : '')}
+            ${a.alreadyRecorded ? `<span style="font-size:11px;color:var(--ink-soft);margin-left:6px;">already logged</span>` : (!a.matchedName ? '<span style="font-size:11px;color:var(--magenta);margin-left:6px;">no match</span>' : '')}
           </td>
           <td data-label=""><button class="row-del" data-discord-remove="${i}">✕</button></td>
         </tr>
@@ -1308,10 +1328,10 @@ function renderDiscordReview(){
       ${notInDiscord.map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('')}
     </div>` : ''}
     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; flex-wrap:wrap; gap:10px;">
-      <span style="font-size:12.5px;color:var(--ink-soft);">${discordAttendees.length} scanned — ${alreadyCount} already on the ${escapeHtml(discordRole)} scoreboard, ${noMatchCount} unmatched, <strong style="color:var(--ink);">${willRecord} new</strong> to record</span>
+      <span style="font-size:12.5px;color:var(--ink-soft);">${discordAttendees.length} scanned — ${alreadyCount} already logged, ${noMatchCount} unmatched, <strong style="color:var(--ink);">${willRecord} new</strong> to log</span>
       <div style="display:flex; gap:8px;">
         <button class="btn ghost small" id="nf-discord-clear">Clear</button>
-        <button class="btn gold small" id="nf-discord-record" ${willRecord===0?'disabled title="Everyone matched is already on the scoreboard — nothing to add."':''}>${willRecord===0?'Fully Covered':'Record Attendance'}</button>
+        <button class="btn gold small" id="nf-discord-record" ${willRecord===0?'disabled title="Everyone matched is already logged for this date — nothing new to add."':''}>${willRecord===0?'Fully Logged':'Log Attendance'}</button>
       </div>
     </div>
   `;
@@ -1319,7 +1339,7 @@ function renderDiscordReview(){
   wrap.querySelectorAll('[data-discord-match]').forEach(sel=>sel.addEventListener('change', e=>{
     const idx = +sel.dataset.discordMatch;
     discordAttendees[idx].matchedName = e.target.value;
-    const already = discordRole ? namesAlreadyRecordedForDateAndRole(draftDate, discordRole) : new Set();
+    const already = discordRole ? namesAlreadyInDiscordLog(draftDate, discordRole) : new Set();
     discordAttendees[idx].alreadyRecorded = e.target.value ? already.has(e.target.value) : false;
     renderDiscordReview();
   }));
@@ -1332,30 +1352,17 @@ function renderDiscordReview(){
 }
 async function recordDiscordAttendance(){
   const toRecord = discordAttendees.filter(a=>a.matchedName && !a.alreadyRecorded);
-  if(toRecord.length===0){ setStatus("Nothing new to add — everyone matched is already on the scoreboard. Attendance is fully covered.", 'ok'); return; }
-  if(!confirm(`Mark ${toRecord.length} member(s) present for ${draftDate} (${discordRole})?`)) return;
+  if(toRecord.length===0){ setStatus("Nothing new to add — everyone matched is already logged for this date.", 'ok'); return; }
+  if(!confirm(`Log ${toRecord.length} member(s) as present via Discord for ${draftDate} (${discordRole})?`)) return;
 
-  let checkinSession = sessions.find(s=>s.date===draftDate && s.role===discordRole && s.event_name==='Discord Check-In');
-  let sessionId = checkinSession ? checkinSession.id : null;
-  if(!sessionId){
-    const { data, error } = await sb.from('sessions').insert({
-      guild_id: guildId, event_name: 'Discord Check-In', date: draftDate, role: discordRole
-    }).select('id').single();
-    if(error){ setStatus("Couldn't record attendance.", 'error'); return; }
-    sessionId = data.id;
-  }
-  const existingInCheckin = checkinSession ? new Set((checkinSession.entries||[]).map(e=>e.name)) : new Set();
-  const rows = toRecord
-    .filter(a=>!existingInCheckin.has(a.matchedName))
-    .map(a=>({ session_id: sessionId, rank:'', name:a.matchedName, tablets:0, monsters:0, kills:0, assists:0, deaths:0, score:0 }));
-  if(rows.length){
-    await sb.from('session_entries').insert(rows);
-  }
+  const rows = toRecord.map(a=>({ guild_id: guildId, date: draftDate, role: discordRole, member_name: a.matchedName }));
+  const { error } = await sb.from('discord_attendance').insert(rows);
+  if(error){ setStatus("Couldn't log attendance.", 'error'); return; }
+
   discordAttendees = [];
-  await loadSessions();
-  renderStatStrip();
+  await loadDiscordAttendanceLog();
   renderNewTab();
-  setStatus(`Marked ${rows.length} member(s) present for ${draftDate} (${discordRole}).`, 'ok');
+  setStatus(`Logged ${rows.length} member(s) as present via Discord for ${draftDate} (${discordRole}). See the Discord Log tab to browse history.`, 'ok');
 }
 
 /* ========================= Discord report ========================= */
@@ -1484,6 +1491,69 @@ function renderLogTab(){
     renderLogTab();
   }));
   if(expandedSessionId) renderSessionBody(expandedSessionId);
+}
+
+function safeDomId(key){ return 'dlbody-'+key.replace(/[^a-zA-Z0-9]/g,'_'); }
+function renderDiscordLogTab(){
+  const groups = {};
+  discordAttendanceLog.forEach(r=>{
+    const key = r.date+'|'+r.role;
+    if(!groups[key]) groups[key] = { key, date: r.date, role: r.role, members: [] };
+    groups[key].members.push(r.member_name);
+  });
+  const list = Object.values(groups).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+
+  $('discordlog-content').innerHTML = `
+    <h2 class="section-title">Discord Attendance Log</h2>
+    ${list.length===0 ? '<p class="section-hint">No Discord attendance logged yet.</p><div class="empty-state">Scan a Discord screenshot in New Record to get started.</div>' : `
+    <p class="section-hint">${list.length} record${list.length===1?'':'s'} — everyone confirmed present via a Discord screenshot, kept here regardless of whether they also have scoreboard stats for that date. Tap one to see who was confirmed.</p>
+    <div>
+      ${list.map(g=>`
+        <div class="session-card">
+          <div class="session-head" data-toggle-discordlog="${escapeHtml(g.key)}">
+            <div>
+              <div class="session-title">${escapeHtml(g.date)}</div>
+              <div class="session-meta" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <span class="role-badge role-${g.role.toLowerCase()}">${escapeHtml(g.role)}</span>
+              </div>
+            </div>
+            <div class="session-meta">${g.members.length} member${g.members.length===1?'':'s'}</div>
+          </div>
+          <div class="session-body ${expandedDiscordLogKey===g.key?'open':''}" id="${safeDomId(g.key)}"></div>
+        </div>
+      `).join('')}
+    </div>`}
+  `;
+  document.querySelectorAll('[data-toggle-discordlog]').forEach(el=>el.addEventListener('click', ()=>{
+    const key = el.dataset.toggleDiscordlog;
+    expandedDiscordLogKey = expandedDiscordLogKey===key ? null : key;
+    renderDiscordLogTab();
+  }));
+  if(expandedDiscordLogKey){
+    const group = list.find(g=>g.key===expandedDiscordLogKey);
+    if(group) renderDiscordLogBody(group);
+  }
+}
+function renderDiscordLogBody(group){
+  const body = $(safeDomId(group.key));
+  if(!body) return;
+  body.innerHTML = `
+    <div style="padding:14px 18px 18px;">
+      ${[...group.members].sort().map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('')}
+      ${isAdmin() ? `<div style="display:flex; justify-content:flex-end; margin-top:14px;">
+        <button class="btn danger small" data-delete-discordlog>Delete this log</button>
+      </div>` : ''}
+    </div>
+  `;
+  const delBtn = body.querySelector('[data-delete-discordlog]');
+  if(delBtn) delBtn.addEventListener('click', async ()=>{
+    if(!isAdmin()) return;
+    if(!confirm(`Delete the Discord attendance log for ${group.date} (${group.role})? This can't be undone.`)) return;
+    await sb.from('discord_attendance').delete().eq('guild_id', guildId).eq('date', group.date).eq('role', group.role);
+    expandedDiscordLogKey = null;
+    await loadDiscordAttendanceLog();
+    renderDiscordLogTab();
+  });
 }
 
 function renderSessionBody(id){
