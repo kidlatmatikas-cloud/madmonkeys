@@ -100,6 +100,9 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
 .slot-label-text{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .slot-btn .job-icon{ width:20px; height:20px; }
 .dup-slot{ border-color:var(--magenta) !important; }
+.cross-booked-slot{ border-color:var(--gold) !important; }
+.party-warnings{ margin-top:8px; display:flex; flex-wrap:wrap; gap:5px; }
+.party-warning-chip{ font-size:10.5px; font-weight:600; color:var(--gold); border:1px solid var(--gold); border-radius:4px; padding:2px 7px; background:rgba(220,154,61,.08); }
 /* assignment popover */
 .assign-popover{ position:fixed; inset:0; background:rgba(4,6,10,.6); z-index:60; display:flex; align-items:center; justify-content:center; }
 .assign-popover.hidden{ display:none; }
@@ -2331,6 +2334,31 @@ function countByName(){
   currentLineup.teams.forEach(t=>t.parties.forEach(p=>p.slots.forEach(s=>{ if(s.name) counts[s.name]=(counts[s.name]||0)+1; })));
   return counts;
 }
+// Names assigned in a DIFFERENT lineup that shares this lineup's date —
+// likely double-booking across two separate lineups made for the same
+// war day, which the within-lineup duplicate check can't catch.
+function findCrossLineupBookings(){
+  if(!currentLineup || !currentLineup.date) return new Set();
+  const names = new Set();
+  lineups.forEach(l=>{
+    if(l.id === currentLineup.id) return;
+    if(l.date !== currentLineup.date) return;
+    (l.teams||[]).forEach(t=>(t.parties||[]).forEach(p=>(p.slots||[]).forEach(s=>{
+      if(s.name) names.add(s.name);
+    })));
+  });
+  return names;
+}
+function partyJobWarnings(party){
+  const jobs = party.slots.filter(s=>s.name).map(s=>(roster.find(m=>m.name===s.name)||{}).job || s.job || '').filter(Boolean);
+  if(jobs.length===0) return [];
+  const warnings = [];
+  if(!jobs.includes('High Priest')) warnings.push('No healer');
+  const counts = {};
+  jobs.forEach(j=>counts[j]=(counts[j]||0)+1);
+  Object.entries(counts).forEach(([job,count])=>{ if(count>=3) warnings.push(`${count}\u00d7 ${job}`); });
+  return warnings;
+}
 function linkStatusHtml(l){
   if(!l.share_expires_at) return '';
   const expired = new Date(l.share_expires_at).getTime() < Date.now();
@@ -2343,6 +2371,8 @@ function renderEditor(){
   const counts = countByName();
   const assignedNames = new Set(Object.keys(counts));
   const unassigned = roster.filter(m=>!assignedNames.has(m.name)).map(m=>m.name).sort();
+  const crossBooked = findCrossLineupBookings();
+  const bookedHere = [...crossBooked].filter(n=>assignedNames.has(n));
 
   $('editor-content').innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px;">
@@ -2367,10 +2397,13 @@ function renderEditor(){
         ${linkStatusHtml(l)}
       </div>
     </div>
+    ${bookedHere.length ? `<div style="margin-top:16px; padding:10px 16px; border:1px solid var(--gold); background:rgba(220,154,61,.06); font-size:13px; color:var(--gold);">
+      \u26a0 Also assigned in another lineup for ${escapeHtml(l.date||'this date')}: ${bookedHere.map(escapeHtml).join(', ')}
+    </div>` : ''}
     ${tplVisits()}
     ${tplAbsences()}
     ${tplPartyReport(l)}
-    ${l.teams.map((team,ti)=>tplTeam(team,ti)).join('')}
+    ${l.teams.map((team,ti)=>tplTeam(team,ti,crossBooked)).join('')}
     <button class="btn gold small" id="add-team-btn" style="margin-bottom:20px;">+ Add Team</button>
     <h3 class="section-title" style="font-size:14px;">Unassigned (${unassigned.length})</h3>
     <div>${unassigned.length ? unassigned.map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('') : '<div style="font-size:13px;color:var(--ink-soft);">Everyone is placed.</div>'}</div>
@@ -2450,7 +2483,7 @@ function renderEditor(){
   const reportDetails = document.getElementById('party-report-details');
   if(reportDetails) reportDetails.addEventListener('toggle', ()=>{ partyReportOpen = reportDetails.open; });
 }
-function tplTeam(team, ti){
+function tplTeam(team, ti, crossBooked){
   return `
     <div class="team-block">
       <div class="team-header">
@@ -2460,12 +2493,13 @@ function tplTeam(team, ti){
           <button class="btn danger small" data-remove-team="${ti}">Remove Team</button>
         </div>
       </div>
-      <div class="party-grid">${team.parties.map((p,pi)=>tplParty(p,ti,pi)).join('')}</div>
+      <div class="party-grid">${team.parties.map((p,pi)=>tplParty(p,ti,pi,crossBooked)).join('')}</div>
     </div>
   `;
 }
-function tplParty(party, ti, pi){
+function tplParty(party, ti, pi, crossBooked){
   const counts = countByName();
+  const warnings = partyJobWarnings(party);
   return `
     <div class="party-card">
       <div class="party-card-head">
@@ -2474,13 +2508,17 @@ function tplParty(party, ti, pi){
       </div>
       ${party.slots.map((slot,si)=>{
         const isDup = slot.name && counts[slot.name] > 1;
+        const isCrossBooked = slot.name && !isDup && crossBooked.has(slot.name);
         const liveJob = slot.name ? ((roster.find(m=>m.name===slot.name)||{}).job || slot.job || '') : '';
         const label = slot.name ? `${slot.name}${liveJob?' — '+liveJob:''}` : '— empty —';
-        return `<button class="slot-btn ${isDup?'dup-slot':''}" data-slot="${ti}-${pi}-${si}">
+        const cls = isDup ? 'dup-slot' : (isCrossBooked ? 'cross-booked-slot' : '');
+        const title = isDup ? 'Duplicated within this lineup' : (isCrossBooked ? 'Also assigned in another lineup for this same date' : '');
+        return `<button class="slot-btn ${cls}" data-slot="${ti}-${pi}-${si}" ${title?`title="${title}"`:''}>
           <span class="slot-btn-label">${jobIconSvg(liveJob)}<span class="slot-label-text">${escapeHtml(label)}</span></span>
           <span style="color:var(--ink-soft); font-size:11px;">&#9662;</span>
         </button>`;
       }).join('')}
+      ${warnings.length ? `<div class="party-warnings">${warnings.map(w=>`<span class="party-warning-chip">\u26a0 ${escapeHtml(w)}</span>`).join('')}</div>` : ''}
     </div>
   `;
 }
