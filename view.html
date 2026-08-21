@@ -548,6 +548,13 @@ async function render(){
         }
         resultMsg = changed ? "Got it — you're marked absent and removed from your party." : 'Got it — marked as absent.';
         resultCls = 'ok';
+        // Fire-and-forget: notify Discord automatically. Never blocks the
+        // guildmate's confirmation, and never surfaces an error to them —
+        // the absence is already safely saved either way.
+        fetch('/api/post-absence', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ memberName: name, date, lineupName: currentLineup.name })
+        }).catch(()=>{});
       }
     }
     await render();
