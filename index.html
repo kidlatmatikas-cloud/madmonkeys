@@ -1537,9 +1537,16 @@ function renderDiscordLogTab(){
 function renderDiscordLogBody(group){
   const body = $(safeDomId(group.key));
   if(!body) return;
+  const presentSet = new Set(group.members);
+  const absentees = roster.filter(m=>!presentSet.has(m.name));
   body.innerHTML = `
     <div style="padding:14px 18px 18px;">
       ${[...group.members].sort().map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('')}
+      ${roster.length ? `
+      <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);">
+        <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--magenta);margin-bottom:8px;">Absent (${absentees.length} of ${roster.length}) — not confirmed in this ${escapeHtml(group.role)} log</div>
+        ${absentees.length ? absentees.map(m=>`<span class="chip">${escapeHtml(m.name)}${m.job?' · '+escapeHtml(m.job):''}</span>`).join('') : '<div style="font-size:13px;color:var(--ink-soft);">Everyone on the roster was confirmed.</div>'}
+      </div>` : ''}
       ${isAdmin() ? `<div style="display:flex; justify-content:flex-end; margin-top:14px;">
         <button class="btn danger small" data-delete-discordlog>Delete this log</button>
       </div>` : ''}
