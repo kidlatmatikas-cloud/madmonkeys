@@ -1079,7 +1079,10 @@ function renderNewTab(){
 
     <div style="margin-top:34px; padding-top:24px; border-top:1px solid var(--line-strong);">
       <h3 class="section-title" style="font-size:16px;">Mark Attendance from Discord</h3>
-      <p class="section-hint">Screenshot a Discord voice channel, member list, or check-in messages — this reads out who's there and cross-checks it against the ${draftRole||'matching Role'} scoreboard already saved for ${escapeHtml(draftDate)}, so an Elite Discord screenshot only checks against Elite records, not Sub.</p>
+      <p class="section-hint">Screenshot a Discord voice channel, member list, or check-in messages — this reads out who's there and cross-checks it against the matching scoreboard.</p>
+      <div id="nf-discord-checking-against" style="font-size:13px; color:var(--cyan); background:rgba(91,141,239,.08); border:1px solid var(--cyan-dim); border-radius:7px; padding:9px 14px; margin-bottom:14px; display:inline-block;">
+        Comparing against: <strong>${escapeHtml(draftDate) || '(no date set above)'}</strong> · <strong id="nf-discord-role-echo">${discordRole || draftRole || '(pick a role below)'}</strong> records
+      </div>
       <div class="field-row" style="margin-bottom:10px;">
         <div style="flex:0 0 180px;">
           <label for="nf-discord-role">Which Role Is This?</label>
@@ -1106,11 +1109,9 @@ function renderNewTab(){
   $('nf-event').addEventListener('input', e=>draftEventName=e.target.value);
   $('nf-date').addEventListener('change', e=>{
     draftDate=e.target.value;
-    if(discordAttendees.length){
-      const already = namesAlreadyRecordedForDate(draftDate);
-      discordAttendees.forEach(a=>{ a.alreadyRecorded = a.matchedName ? already.has(a.matchedName) : false; });
-      renderDiscordReview();
-    }
+    const echoEl = $('nf-discord-checking-against');
+    if(echoEl) echoEl.innerHTML = `Comparing against: <strong>${escapeHtml(draftDate) || '(no date set above)'}</strong> · <strong>${discordRole || draftRole || '(pick a role below)'}</strong> records`;
+    if(discordAttendees.length) refreshDiscordAlreadyRecorded();
   });
   $('nf-opp').addEventListener('input', e=>draftOpposingGuild=e.target.value);
   $('nf-role').addEventListener('change', e=>draftRole=e.target.value);
@@ -1127,6 +1128,8 @@ function renderNewTab(){
 
   $('nf-discord-role').addEventListener('change', e=>{
     discordRole = e.target.value;
+    const echoEl = $('nf-discord-checking-against');
+    if(echoEl) echoEl.innerHTML = `Comparing against: <strong>${escapeHtml(draftDate) || '(no date set above)'}</strong> · <strong>${discordRole || '(pick a role below)'}</strong> records`;
     if(discordAttendees.length) refreshDiscordAlreadyRecorded();
   });
   $('nf-discord-dropzone').addEventListener('click', ()=>$('nf-discord-file-input').click());
