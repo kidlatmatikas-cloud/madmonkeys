@@ -2448,7 +2448,15 @@ function renderEditor(){
     currentLineup.teams[+inp.dataset.teamName].name = e.target.value; scheduleSave();
   }));
   document.querySelectorAll('[data-remove-team]').forEach(btn=>btn.addEventListener('click', ()=>{
-    currentLineup.teams.splice(+btn.dataset.removeTeam,1); scheduleSave(); renderEditor();
+    const ti = +btn.dataset.removeTeam;
+    const team = currentLineup.teams[ti];
+    const partyCount = team.parties.length;
+    const filledCount = team.parties.reduce((sum,p)=>sum+p.slots.filter(s=>s.name).length, 0);
+    const msg = filledCount
+      ? `Remove "${team.name}"? This will delete ${partyCount} part${partyCount===1?'y':'ies'} and unassign ${filledCount} member${filledCount===1?'':'s'}. This can't be undone.`
+      : `Remove "${team.name}" and its ${partyCount} part${partyCount===1?'y':'ies'}? This can't be undone.`;
+    if(!confirm(msg)) return;
+    currentLineup.teams.splice(ti,1); scheduleSave(); renderEditor();
   }));
   document.querySelectorAll('[data-add-party]').forEach(btn=>btn.addEventListener('click', ()=>{
     const ti = +btn.dataset.addParty;
@@ -2462,6 +2470,12 @@ function renderEditor(){
   }));
   document.querySelectorAll('[data-remove-party]').forEach(btn=>btn.addEventListener('click', ()=>{
     const [ti,pi] = btn.dataset.removeParty.split('-').map(Number);
+    const party = currentLineup.teams[ti].parties[pi];
+    const filledCount = party.slots.filter(s=>s.name).length;
+    const msg = filledCount
+      ? `Remove "${party.name}"? This will unassign ${filledCount} member${filledCount===1?'':'s'}. This can't be undone.`
+      : `Remove "${party.name}"? This can't be undone.`;
+    if(!confirm(msg)) return;
     currentLineup.teams[ti].parties.splice(pi,1); scheduleSave(); renderEditor();
   }));
   document.querySelectorAll('[data-slot]').forEach(btn=>btn.addEventListener('click', ()=>{
