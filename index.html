@@ -1495,33 +1495,35 @@ function renderLogTab(){
 
 function safeDomId(key){ return 'dlbody-'+key.replace(/[^a-zA-Z0-9]/g,'_'); }
 function renderDiscordLogTab(){
-  const groups = {};
+  const byDate = {};
   discordAttendanceLog.forEach(r=>{
-    const key = r.date+'|'+r.role;
-    if(!groups[key]) groups[key] = { key, date: r.date, role: r.role, members: [] };
-    groups[key].members.push(r.member_name);
+    if(!byDate[r.date]) byDate[r.date] = { date: r.date, Elite: [], Sub: [] };
+    if(!byDate[r.date][r.role]) byDate[r.date][r.role] = [];
+    byDate[r.date][r.role].push(r.member_name);
   });
-  const list = Object.values(groups).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const list = Object.values(byDate).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
 
   $('discordlog-content').innerHTML = `
     <h2 class="section-title">Discord Attendance Log</h2>
     ${list.length===0 ? '<p class="section-hint">No Discord attendance logged yet.</p><div class="empty-state">Scan a Discord screenshot in New Record to get started.</div>' : `
-    <p class="section-hint">${list.length} record${list.length===1?'':'s'} — everyone confirmed present via a Discord screenshot, kept here regardless of whether they also have scoreboard stats for that date. Tap one to see who was confirmed.</p>
+    <p class="section-hint">${list.length} date${list.length===1?'':'s'} — everyone confirmed present via a Discord screenshot, split out by Elite and Sub. Tap a date to see who was confirmed and who wasn't.</p>
     <div>
-      ${list.map(g=>`
-        <div class="session-card">
-          <div class="session-head" data-toggle-discordlog="${escapeHtml(g.key)}">
+      ${list.map(g=>{
+        const total = g.Elite.length + g.Sub.length;
+        return `<div class="session-card">
+          <div class="session-head" data-toggle-discordlog="${escapeHtml(g.date)}">
             <div>
               <div class="session-title">${escapeHtml(g.date)}</div>
               <div class="session-meta" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                <span class="role-badge role-${g.role.toLowerCase()}">${escapeHtml(g.role)}</span>
+                ${g.Elite.length ? `<span class="role-badge role-elite">Elite: ${g.Elite.length}</span>` : ''}
+                ${g.Sub.length ? `<span class="role-badge role-sub">Sub: ${g.Sub.length}</span>` : ''}
               </div>
             </div>
-            <div class="session-meta">${g.members.length} member${g.members.length===1?'':'s'}</div>
+            <div class="session-meta">${total} total</div>
           </div>
-          <div class="session-body ${expandedDiscordLogKey===g.key?'open':''}" id="${safeDomId(g.key)}"></div>
-        </div>
-      `).join('')}
+          <div class="session-body ${expandedDiscordLogKey===g.date?'open':''}" id="${safeDomId(g.date)}"></div>
+        </div>`;
+      }).join('')}
     </div>`}
   `;
   document.querySelectorAll('[data-toggle-discordlog]').forEach(el=>el.addEventListener('click', ()=>{
@@ -1530,37 +1532,50 @@ function renderDiscordLogTab(){
     renderDiscordLogTab();
   }));
   if(expandedDiscordLogKey){
-    const group = list.find(g=>g.key===expandedDiscordLogKey);
+    const group = list.find(g=>g.date===expandedDiscordLogKey);
     if(group) renderDiscordLogBody(group);
   }
 }
-function renderDiscordLogBody(group){
-  const body = $(safeDomId(group.key));
-  if(!body) return;
-  const presentSet = new Set(group.members);
+function discordLogRoleSection(roleLabel, roleClass, members){
+  const presentSet = new Set(members);
   const absentees = roster.filter(m=>!presentSet.has(m.name));
-  body.innerHTML = `
-    <div style="padding:14px 18px 18px;">
-      ${[...group.members].sort().map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('')}
+  return `
+    <div style="margin-bottom:20px;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:9px;">
+        <span class="role-badge ${roleClass}">${roleLabel}</span>
+        <span style="font-size:12px;color:var(--ink-soft);">${members.length} confirmed</span>
+      </div>
+      ${members.length ? [...members].sort().map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('') : `<div style="font-size:13px;color:var(--ink-soft);">No one logged for ${roleLabel} on this date.</div>`}
       ${roster.length ? `
-      <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);">
-        <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--magenta);margin-bottom:8px;">Absent (${absentees.length} of ${roster.length}) — not confirmed in this ${escapeHtml(group.role)} log</div>
+      <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);">
+        <div style="font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--magenta);margin-bottom:7px;">Absent — ${roleLabel} (${absentees.length} of ${roster.length})</div>
         ${absentees.length ? absentees.map(m=>`<span class="chip">${escapeHtml(m.name)}${m.job?' · '+escapeHtml(m.job):''}</span>`).join('') : '<div style="font-size:13px;color:var(--ink-soft);">Everyone on the roster was confirmed.</div>'}
-      </div>` : ''}
-      ${isAdmin() ? `<div style="display:flex; justify-content:flex-end; margin-top:14px;">
-        <button class="btn danger small" data-delete-discordlog>Delete this log</button>
       </div>` : ''}
     </div>
   `;
-  const delBtn = body.querySelector('[data-delete-discordlog]');
-  if(delBtn) delBtn.addEventListener('click', async ()=>{
+}
+function renderDiscordLogBody(group){
+  const body = $(safeDomId(group.date));
+  if(!body) return;
+  body.innerHTML = `
+    <div style="padding:14px 18px 18px;">
+      ${discordLogRoleSection('Elite', 'role-elite', group.Elite)}
+      ${discordLogRoleSection('Sub', 'role-sub', group.Sub)}
+      ${isAdmin() ? `<div style="display:flex; justify-content:flex-end; gap:8px; margin-top:6px;">
+        ${group.Elite.length ? `<button class="btn danger small" data-delete-discordlog="Elite">Delete Elite log</button>` : ''}
+        ${group.Sub.length ? `<button class="btn danger small" data-delete-discordlog="Sub">Delete Sub log</button>` : ''}
+      </div>` : ''}
+    </div>
+  `;
+  body.querySelectorAll('[data-delete-discordlog]').forEach(btn=>btn.addEventListener('click', async ()=>{
     if(!isAdmin()) return;
-    if(!confirm(`Delete the Discord attendance log for ${group.date} (${group.role})? This can't be undone.`)) return;
-    await sb.from('discord_attendance').delete().eq('guild_id', guildId).eq('date', group.date).eq('role', group.role);
+    const role = btn.dataset.deleteDiscordlog;
+    if(!confirm(`Delete the ${role} Discord attendance log for ${group.date}? This can't be undone.`)) return;
+    await sb.from('discord_attendance').delete().eq('guild_id', guildId).eq('date', group.date).eq('role', role);
     expandedDiscordLogKey = null;
     await loadDiscordAttendanceLog();
     renderDiscordLogTab();
-  });
+  }));
 }
 
 function renderSessionBody(id){
