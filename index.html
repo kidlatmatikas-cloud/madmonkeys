@@ -1770,6 +1770,31 @@ function exportRosterExcel(){
   XLSX.writeFile(wb, `guild-roster-${stamp}.xlsx`);
 }
 
+// Party slots store a COPY of each member's job at the time they were
+// assigned, so the public share page doesn't need roster access. That
+// means editing someone's job here would otherwise leave every party
+// they're already placed in still showing their OLD job. This keeps
+// every lineup's stored copy in sync the moment the job changes.
+async function syncJobAcrossLineups(name, newJob){
+  const affected = lineups.filter(l => (l.teams||[]).some(t => (t.parties||[]).some(p => (p.slots||[]).some(s => s.name === name))));
+  for(const lineup of affected){
+    const updatedTeams = lineup.teams.map(t => ({
+      ...t,
+      parties: t.parties.map(p => ({
+        ...p,
+        slots: p.slots.map(s => s.name === name ? { ...s, job: newJob } : s)
+      }))
+    }));
+    lineup.teams = updatedTeams;
+    await sb.from('party_lineups').update({ teams: updatedTeams }).eq('id', lineup.id);
+    if(currentLineup && currentLineup.id === lineup.id){
+      currentLineup.teams = updatedTeams;
+      if(document.getElementById('editor-tab') && !document.getElementById('editor-tab').classList.contains('hidden')){
+        renderEditor();
+      }
+    }
+  }
+}
 function renderFullRosterTab(){
   frSelected = new Set([...frSelected].filter(id=>roster.some(m=>m.id===id)));
   const sorted = [...roster].sort((a,b)=>{
@@ -1916,6 +1941,7 @@ function renderFullRosterTab(){
       if(field==='job'){
         const cell = el.closest('.job-cell');
         if(cell){ const oldIcon=cell.querySelector('.job-icon'); if(oldIcon) oldIcon.remove(); cell.insertAdjacentHTML('afterbegin', jobIconSvg(el.value)); }
+        if(m) await syncJobAcrossLineups(m.name, el.value);
       }
     });
   });
@@ -2151,7 +2177,7 @@ function computePartyReport(l){
           // see the note in computeRosterStats for why.
           if(e._role==='Elite') tablets += e.tablets||0;
         });
-        return { name:slot.name, job:slot.job||'', kills, assists, deaths, tablets, score };
+        return { name:slot.name, job:((roster.find(m=>m.name===slot.name)||{}).job || slot.job || ''), kills, assists, deaths, tablets, score };
       });
       const kills = members.reduce((s,m)=>s+m.kills,0);
       const assists = members.reduce((s,m)=>s+m.assists,0);
@@ -2417,9 +2443,10 @@ function tplParty(party, ti, pi){
       </div>
       ${party.slots.map((slot,si)=>{
         const isDup = slot.name && counts[slot.name] > 1;
-        const label = slot.name ? `${slot.name}${slot.job?' — '+slot.job:''}` : '— empty —';
+        const liveJob = slot.name ? ((roster.find(m=>m.name===slot.name)||{}).job || slot.job || '') : '';
+        const label = slot.name ? `${slot.name}${liveJob?' — '+liveJob:''}` : '— empty —';
         return `<button class="slot-btn ${isDup?'dup-slot':''}" data-slot="${ti}-${pi}-${si}">
-          <span class="slot-btn-label">${jobIconSvg(slot.job)}<span class="slot-label-text">${escapeHtml(label)}</span></span>
+          <span class="slot-btn-label">${jobIconSvg(liveJob)}<span class="slot-label-text">${escapeHtml(label)}</span></span>
           <span style="color:var(--ink-soft); font-size:11px;">&#9662;</span>
         </button>`;
       }).join('')}
