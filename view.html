@@ -442,9 +442,7 @@ async function render(){
     return;
   }
   currentLineup = lineup;
-  // Fire-and-forget visit log for officers — doesn't block or affect the
-  // page if it fails (e.g. on a project that hasn't run the migration yet).
-  sb.from('link_visits').insert({ guild_id: lineup.guild_id, lineup_id: lineup.id }).then(()=>{}).catch(()=>{});
+  sb.from('link_visits').insert({ lineup_id: lineup.id }); // fire-and-forget, don't block rendering for the visitor
 
   document.getElementById('masthead-title').textContent = (lineup.guild_settings?.name || 'Guild') + ' // War Log';
   document.title = lineup.name + ' — Guild War Log';
@@ -472,11 +470,13 @@ async function render(){
             ${team.parties.map(party => `
               <div class="party-card">
                 <div class="party-card-head"><span>${escapeHtml(party.name)}</span></div>
-                ${party.slots.map(slot => `
+                ${party.slots.map(slot => {
+                  const liveJob = slot.name ? ((guildRoster.find(m=>m.name===slot.name)||{}).job || slot.job || '') : '';
+                  return `
                   <div class="slot-btn readonly">
-                    <span class="slot-btn-label">${jobIconSvg(slot.job)}<span class="slot-label-text">${slot.name ? escapeHtml(slot.name) + (slot.job ? ' — '+escapeHtml(slot.job) : '') : '— empty —'}</span></span>
+                    <span class="slot-btn-label">${jobIconSvg(liveJob)}<span class="slot-label-text">${slot.name ? escapeHtml(slot.name) + (liveJob ? ' — '+escapeHtml(liveJob) : '') : '— empty —'}</span></span>
                   </div>
-                `).join('')}
+                `;}).join('')}
               </div>
             `).join('')}
           </div>
