@@ -1901,6 +1901,37 @@ async function syncJobAcrossLineups(name, newJob){
     }
   }
 }
+// Renaming someone doesn't just touch their roster row — saved lineups
+// store each slot's name as a snapshot, and session_entries stores each
+// war record's name as plain text too, so both need patching or the
+// rename leaves a stale duplicate everywhere else.
+async function syncNameAcrossLineups(oldName, newName){
+  const affected = lineups.filter(l => (l.teams||[]).some(t => (t.parties||[]).some(p => (p.slots||[]).some(s => s.name === oldName))));
+  for(const lineup of affected){
+    const updatedTeams = lineup.teams.map(t => ({
+      ...t,
+      parties: t.parties.map(p => ({
+        ...p,
+        slots: p.slots.map(s => s.name === oldName ? { ...s, name: newName } : s)
+      }))
+    }));
+    lineup.teams = updatedTeams;
+    await sb.from('party_lineups').update({ teams: updatedTeams }).eq('id', lineup.id);
+    if(currentLineup && currentLineup.id === lineup.id){
+      currentLineup.teams = updatedTeams;
+      if(document.getElementById('editor-tab') && !document.getElementById('editor-tab').classList.contains('hidden')){
+        renderEditor();
+      }
+    }
+  }
+}
+async function syncNameAcrossSessions(oldName, newName){
+  const { data: sessRows } = await sb.from('sessions').select('id').eq('guild_id', guildId);
+  const sessionIds = (sessRows||[]).map(s=>s.id);
+  if(sessionIds.length){
+    await sb.from('session_entries').update({ name: newName }).eq('name', oldName).in('session_id', sessionIds);
+  }
+}
 function renderFullRosterTab(){
   frSelected = new Set([...frSelected].filter(id=>roster.some(m=>m.id===id)));
   const searchTerm = fullRosterSearch.trim().toLowerCase();
@@ -2078,8 +2109,30 @@ function renderFullRosterTab(){
   document.querySelectorAll('[data-fr-field]').forEach(el=>{
     el.addEventListener('change', async ()=>{
       const id = el.dataset.frId, field = el.dataset.frField;
-      await sb.from('roster_members').update({[field]: el.value}).eq('id', id);
       const m = roster.find(x=>x.id===id);
+      if(field==='name'){
+        const oldName = m ? m.name : null;
+        const newName = el.value.trim();
+        if(!newName || newName === oldName){ el.value = oldName || ''; return; }
+        const dup = roster.some(x => x.id !== id && x.name === newName);
+        if(dup){
+          setStatus('That name is already taken by another roster member.', 'error');
+          el.value = oldName || '';
+          return;
+        }
+        const { error } = await sb.from('roster_members').update({ name: newName }).eq('id', id);
+        if(error){
+          setStatus("Couldn't rename — try again.", 'error');
+          el.value = oldName || '';
+          return;
+        }
+        if(m) m.name = newName;
+        await syncNameAcrossSessions(oldName, newName);
+        await syncNameAcrossLineups(oldName, newName);
+        setStatus('Member renamed — synced across sessions and lineups.', 'ok');
+        return;
+      }
+      await sb.from('roster_members').update({[field]: el.value}).eq('id', id);
       if(m) m[field] = el.value;
       if(field==='job'){
         const cell = el.closest('.job-cell');
