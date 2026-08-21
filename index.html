@@ -2083,6 +2083,7 @@ function scheduleSave(){
   }, 500);
 }
 let currentLineupAbsences = [];
+let currentLineupVisits = [];
 async function openEditor(id){
   TAB_IDS.forEach(t=>$(t+'-tab').classList.add('hidden'));
   $('editor-tab').classList.remove('hidden');
@@ -2091,11 +2092,35 @@ async function openEditor(id){
   currentLineup = fresh || lineups.find(l=>l.id===id);
   if(fresh){ const idx = lineups.findIndex(l=>l.id===id); if(idx>=0) lineups[idx] = fresh; }
   currentLineupAbsences = [];
+  currentLineupVisits = [];
   renderEditor();
   const { data } = await sb.from('absences').select('*').eq('lineup_id', id).order('member_name');
   currentLineupAbsences = data || [];
   const box = $('editor-absences');
   if(box) box.outerHTML = tplAbsences();
+  const { data: visits } = await sb.from('link_visits').select('viewed_at').eq('lineup_id', id).order('viewed_at', { ascending:false });
+  currentLineupVisits = visits || [];
+  const visitBox = $('editor-visits');
+  if(visitBox) visitBox.outerHTML = tplVisits();
+}
+function timeAgo(iso){
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs/60000);
+  if(mins < 1) return 'just now';
+  if(mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins/60);
+  if(hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs/24);
+  return `${days}d ago`;
+}
+function tplVisits(){
+  return `<div id="editor-visits" class="hud-panel" style="margin-bottom:20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+    <span style="color:var(--cyan-dim);font-weight:700;">Share Link Activity</span>
+    ${currentLineupVisits.length ? `
+      <span class="chip">${currentLineupVisits.length} view${currentLineupVisits.length===1?'':'s'}</span>
+      <span class="chip">Last opened ${timeAgo(currentLineupVisits[0].viewed_at)}</span>
+    ` : `<span class="section-hint" style="margin:0;">No one has opened this link yet.</span>`}
+  </div>`;
 }
 function tplAbsences(){
   return `<div id="editor-absences">${currentLineupAbsences.length ? `
@@ -2254,6 +2279,7 @@ function renderEditor(){
         ${linkStatusHtml(l)}
       </div>
     </div>
+    ${tplVisits()}
     ${tplAbsences()}
     ${tplPartyReport(l)}
     ${l.teams.map((team,ti)=>tplTeam(team,ti)).join('')}
