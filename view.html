@@ -227,19 +227,21 @@ function computePersonalStats(name){
 // Sub's (mislabeled) Tablets column.
 function computeGuildTopStats(){
   const map = {};
-  const ensure = name => { if(!map[name]) map[name] = { name, kills:0, assists:0, trueTablets:0, trueMonsterKills:0, mvps:0, job:'' }; return map[name]; };
+  const ensure = name => { if(!map[name]) map[name] = { name, kills:0, assists:0, trueTablets:0, trueMonsterKills:0, scoreSum:0, attendedDates:new Set(), job:'' }; return map[name]; };
   guildSessions.forEach(s=>{
     (s.entries||[]).forEach(e=>{
       const m = ensure(e.name);
       m.kills += e.kills; m.assists += e.assists;
       if(s.role==='Elite'){ m.trueTablets += e.tablets; m.trueMonsterKills += e.monsters; }
       else if(s.role==='Sub'){ m.trueMonsterKills += e.tablets; }
-      if(e.rank && String(e.rank).toUpperCase()==='MVP') m.mvps++;
+      m.scoreSum += e.score;
+      if(s.date) m.attendedDates.add(s.date);
     });
   });
   Object.values(map).forEach(m=>{
     const rm = guildRoster.find(r=>r.name===m.name);
     m.job = rm ? rm.job : '';
+    m.avgScore = m.attendedDates.size ? Math.round(m.scoreSum/m.attendedDates.size) : 0;
   });
   return Object.values(map);
 }
@@ -261,7 +263,7 @@ function renderTopScorersPanel(){
         <div class="dash-panel"><h3>Top Assists</h3>${lbRows(top('assists', true), 'assists')}</div>
         <div class="dash-panel"><h3>Top Tablets Taken</h3>${lbRows(top('trueTablets', true), 'trueTablets')}</div>
         <div class="dash-panel"><h3>Top Monster Kills</h3>${lbRows(top('trueMonsterKills', true), 'trueMonsterKills')}</div>
-        <div class="dash-panel"><h3>Most MVPs</h3>${lbRows(top('mvps', true), 'mvps')}</div>
+        <div class="dash-panel"><h3>Top Average Score</h3>${lbRows(top('avgScore', true), 'avgScore')}</div>
       </div>
     </div>
   `;
