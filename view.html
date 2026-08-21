@@ -442,6 +442,9 @@ async function render(){
     return;
   }
   currentLineup = lineup;
+  // Fire-and-forget visit log for officers — doesn't block or affect the
+  // page if it fails (e.g. on a project that hasn't run the migration yet).
+  sb.from('link_visits').insert({ guild_id: lineup.guild_id, lineup_id: lineup.id }).then(()=>{}).catch(()=>{});
 
   document.getElementById('masthead-title').textContent = (lineup.guild_settings?.name || 'Guild') + ' // War Log';
   document.title = lineup.name + ' — Guild War Log';
