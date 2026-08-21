@@ -855,7 +855,7 @@ function renderOverviewTab(){
   const topDeathsSub = rosterStats.filter(m=>m.subDeaths>0).sort((a,b)=>b.subDeaths-a.subDeaths).slice(0,5);
   const lowestDeaths = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>a.deaths-b.deaths).slice(0,10);
   const topAssists = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.assists-a.assists).slice(0,5);
-  const topTablets = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.trueTablets-a.trueTablets).slice(0,5);
+  const topTablets = rosterStats.filter(m=>m.eliteSessions>0).sort((a,b)=>b.trueTablets-a.trueTablets).slice(0,5);
   const topMonsterKills = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.trueMonsterKills-a.trueMonsterKills).slice(0,5);
   const topMvp = Object.entries(mvpCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
   const topAttendance = sessions.length ? [...rosterStats].sort((a,b)=>b.attendance-a.attendance).slice(0,5) : [];
