@@ -766,52 +766,6 @@ function getSessionDays(){
     };
   });
 }
-/* ========================= Trends ========================= */
-function computeTrends(){
-  const daysAsc = [...getSessionDays()].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
-  const last10 = daysAsc.slice(-10);
-  const outcomes = last10.map(d=>({ date: d.date, opposing_guild: d.opposing_guild, outcome: sessionOutcome(d) })).filter(o=>o.outcome);
-  const half = Math.ceil(outcomes.length/2);
-  const winRateOf = arr => arr.length ? arr.filter(o=>o.outcome==='WIN').length/arr.length*100 : null;
-  const firstRate = winRateOf(outcomes.slice(0, half));
-  const secondRate = winRateOf(outcomes.slice(half));
-  let trendDirection = null;
-  if(firstRate!==null && secondRate!==null && outcomes.length>=2){
-    trendDirection = secondRate>firstRate ? 'up' : (secondRate<firstRate ? 'down' : 'flat');
-  }
-  const scoreTrend = last10.map(d=>{
-    const scores = d.entries.map(e=>e.score).filter(s=>s>0);
-    const avg = scores.length ? scores.reduce((a,b)=>a+b,0)/scores.length : 0;
-    return { label: d.date, value: Math.round(avg) };
-  });
-  return { outcomes, trendDirection, firstRate, secondRate, scoreTrend };
-}
-function computePlayerScoreTrend(name){
-  const daysAsc = [...getSessionDays()].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
-  return daysAsc.map(d=>{
-    const entry = d.entries.find(e=>e.name===name);
-    return entry ? { label: d.date, value: entry.score } : null;
-  }).filter(Boolean).slice(-10);
-}
-function sparklineSvg(points){
-  if(!points || points.length===0) return '<div class="empty-state" style="padding:14px 4px;">Not enough data yet.</div>';
-  if(points.length===1) return `<div style="font-family:'Inter',sans-serif; font-size:22px; font-weight:700;">${points[0].value}</div><div style="font-size:11px;color:var(--ink-faint);">${escapeHtml(points[0].label)} only — need at least 2 war days for a trend line.</div>`;
-  const w=560, h=90, pad=10;
-  const values = points.map(p=>p.value);
-  const max = Math.max(...values, 1), min = Math.min(...values, 0);
-  const range = (max-min) || 1;
-  const stepX = (w-2*pad)/(points.length-1);
-  const coords = points.map((p,i)=>[pad+i*stepX, h-pad-((p.value-min)/range)*(h-2*pad)]);
-  const pathD = coords.map((c,i)=>(i===0?'M':'L')+c[0].toFixed(1)+','+c[1].toFixed(1)).join(' ');
-  const dots = coords.map((c,i)=>`<circle cx="${c[0].toFixed(1)}" cy="${c[1].toFixed(1)}" r="3.5" fill="var(--cyan)"><title>${escapeHtml(points[i].label)}: ${points[i].value}</title></circle>`).join('');
-  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%; height:${h}px; display:block;">
-    <path d="${pathD}" fill="none" stroke="var(--cyan)" stroke-width="2.5"/>
-    ${dots}
-  </svg>
-  <div style="display:flex; justify-content:space-between; font-size:10.5px; color:var(--ink-faint); margin-top:2px;">
-    <span>${escapeHtml(points[0].label)}</span><span>${escapeHtml(points[points.length-1].label)}</span>
-  </div>`;
-}
 function computeSessionRecord(){
   let wins=0, losses=0, ties=0, scored=0;
   getSessionDays().forEach(s=>{
@@ -965,7 +919,6 @@ function renderOverviewTab(){
   });
   const eliteRoster = Object.entries(eliteSessionCounts).sort((a,b)=>b[1]-a[1]);
   const subRoster = Object.entries(subSessionCounts).sort((a,b)=>b[1]-a[1]);
-  const trends = computeTrends();
 
   $('overview-content').innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px;">
@@ -1025,41 +978,6 @@ function renderOverviewTab(){
     <div class="hud-panel" style="margin-top:24px;">
       <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
       <span class="corner corner-bl"></span><span class="corner corner-br"></span>
-      <h3 class="section-title" style="font-size:16px;">Trends</h3>
-      <p class="section-hint">How things are moving over your last ${trends.outcomes.length} scored war day${trends.outcomes.length===1?'':'s'}.</p>
-
-      <div style="margin-bottom:22px;">
-        <div style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-bottom:8px;">Recent Form</div>
-        ${trends.outcomes.length ? `
-        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-          ${trends.outcomes.map(o=>{
-            const cls = o.outcome==='WIN'?'attn-high':(o.outcome==='LOSS'?'attn-low':'attn-mid');
-            return `<span class="outcome-tag ${cls}" style="border-color:currentColor;" title="${escapeHtml(o.date)}${o.opposing_guild?' vs '+escapeHtml(o.opposing_guild):''}">${o.outcome[0]}</span>`;
-          }).join('')}
-          ${trends.trendDirection ? `<span style="margin-left:8px; font-size:13px; color:var(--ink-soft);">${trends.trendDirection==='up'?'▲ Improving':(trends.trendDirection==='down'?'▼ Declining':'→ Steady')}</span>` : ''}
-        </div>` : '<div class="empty-state" style="padding:14px 4px;">No scored war days yet.</div>'}
-      </div>
-
-      <div style="margin-bottom:22px;">
-        <div style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-bottom:8px;">Guild Average Score</div>
-        ${sparklineSvg(trends.scoreTrend)}
-      </div>
-
-      <div>
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
-          <div style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.05em;font-weight:700;">Player Score Trend</div>
-          <select id="trend-player-select" style="width:auto; max-width:220px;">
-            <option value="">— Pick a player —</option>
-            ${roster.map(m=>`<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join('')}
-          </select>
-        </div>
-        <div id="trend-player-chart"><div class="empty-state" style="padding:14px 4px;">Pick a player above.</div></div>
-      </div>
-    </div>
-
-    <div class="hud-panel" style="margin-top:24px;">
-      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
-      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
       <h3 class="section-title" style="font-size:16px;">Elite vs Sub Performance</h3>
       <p class="section-hint">Total kills, assists, and deaths by team — per war day and overall. Based on the Role set when each record was saved in New Record.</p>
       <div class="stat-card-grid" style="margin-bottom:22px;">
@@ -1106,14 +1024,6 @@ function renderOverviewTab(){
     </div>
   `;
   $('backup-btn').addEventListener('click', exportFullBackup);
-  const trendPlayerSel = $('trend-player-select');
-  if(trendPlayerSel) trendPlayerSel.addEventListener('change', ()=>{
-    const name = trendPlayerSel.value;
-    const chartEl = $('trend-player-chart');
-    if(!name){ chartEl.innerHTML = '<div class="empty-state" style="padding:14px 4px;">Pick a player above.</div>'; return; }
-    const points = computePlayerScoreTrend(name);
-    chartEl.innerHTML = points.length ? sparklineSvg(points) : '<div class="empty-state" style="padding:14px 4px;">No scored sessions for this player yet.</div>';
-  });
   const showHiddenLink = $('show-hidden-panels');
   if(showHiddenLink) showHiddenLink.addEventListener('click', showAllPanels);
   document.querySelectorAll('[data-hide-panel]').forEach(btn=>btn.addEventListener('click', (e)=>{
