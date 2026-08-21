@@ -212,8 +212,35 @@ function computePersonalStats(name){
   };
 }
 
+// Groups saved records into unique war days — if Elite and Sub were
+// uploaded separately for the same date, that's one war, not two, matching
+// how attendance is already counted above.
+function getWarDays(){
+  const byDate = {};
+  guildSessions.forEach(s=>{
+    const d = s.date || '';
+    if(!byDate[d]) byDate[d] = { date: d, opposing_guild: '', entries: [] };
+    if(!byDate[d].opposing_guild && s.opposing_guild) byDate[d].opposing_guild = s.opposing_guild;
+    byDate[d].entries = byDate[d].entries.concat(s.entries||[]);
+  });
+  return Object.values(byDate).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+}
+function computeSpecificWarStats(name, date){
+  const day = getWarDays().find(d=>d.date===date);
+  if(!day) return null;
+  const entry = day.entries.find(e=>e.name===name);
+  return {
+    date: day.date, opposing_guild: day.opposing_guild, attended: !!entry,
+    rank: entry ? entry.rank : null,
+    mvp: !!(entry && String(entry.rank||'').toUpperCase()==='MVP'),
+    score: entry ? entry.score : 0, kills: entry ? entry.kills : 0, assists: entry ? entry.assists : 0,
+    deaths: entry ? entry.deaths : 0, tablets: entry ? entry.tablets : 0, monsters: entry ? entry.monsters : 0,
+  };
+}
+
 function renderStatsLookupPanel(){
   const options = guildRoster.map(m=>`<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join('');
+  const warOptions = getWarDays().map(d=>`<option value="${escapeHtml(d.date)}">${escapeHtml(d.date)}${d.opposing_guild?' — vs '+escapeHtml(d.opposing_guild):''}</option>`).join('');
   return `
     <div class="hud-panel">
       <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
@@ -229,6 +256,17 @@ function renderStatsLookupPanel(){
           <label for="stats-mmid">Your UID</label>
           <input type="text" id="stats-mmid" placeholder="e.g. UID004">
         </div>
+        <div>
+          <label for="stats-scope">View</label>
+          <select id="stats-scope">
+            <option value="alltime">All-Time Stats</option>
+            <option value="specific">Specific War</option>
+          </select>
+        </div>
+        <div id="stats-war-wrap" class="hidden">
+          <label for="stats-war">Which War</label>
+          <select id="stats-war">${warOptions || '<option value="">No wars recorded yet</option>'}</select>
+        </div>
         <div style="flex:0 0 auto; display:flex; align-items:flex-end;">
           <button class="btn gold small" id="stats-check-btn">Check My Stats</button>
         </div>
@@ -242,9 +280,15 @@ function renderStatsLookupPanel(){
 function wireStatsLookup(){
   const btn = document.getElementById('stats-check-btn');
   if(!btn) return;
+  const scopeSel = document.getElementById('stats-scope');
+  const warWrap = document.getElementById('stats-war-wrap');
+  scopeSel.addEventListener('change', ()=>{
+    warWrap.classList.toggle('hidden', scopeSel.value !== 'specific');
+  });
   const submit = ()=>{
     const name = document.getElementById('stats-name').value;
     const mmid = document.getElementById('stats-mmid').value.trim();
+    const scope = scopeSel.value;
     const statusEl = document.getElementById('stats-status');
     const resultEl = document.getElementById('stats-result');
     resultEl.innerHTML = '';
@@ -257,6 +301,35 @@ function wireStatsLookup(){
       statusEl.className='status-line error'; statusEl.textContent = "Name and UID don't match our records.";
       return;
     }
+
+    if(scope === 'specific'){
+      const date = document.getElementById('stats-war').value;
+      const war = computeSpecificWarStats(name, date);
+      if(!war){
+        statusEl.className='status-line error'; statusEl.textContent = 'Pick a war to check.';
+        return;
+      }
+      statusEl.className='status-line ok'; statusEl.textContent = 'Match found — here you go:';
+      if(!war.attended){
+        resultEl.innerHTML = `<div class="empty-state" style="padding:14px 4px;">No recorded entry for you on ${escapeHtml(war.date)}${war.opposing_guild?' vs '+escapeHtml(war.opposing_guild):''} — you may not have been included in that record.</div>`;
+        return;
+      }
+      resultEl.innerHTML = `
+        <div class="stat-card-grid">
+          <div class="stat-card"><div class="stat-value">${escapeHtml(war.date)}</div><div class="stat-label">Date</div></div>
+          <div class="stat-card"><div class="stat-value">${war.opposing_guild?escapeHtml(war.opposing_guild):'—'}</div><div class="stat-label">Opponent</div></div>
+          <div class="stat-card"><div class="stat-value">${war.mvp?'MVP':(war.rank||'—')}</div><div class="stat-label">Rank</div></div>
+          <div class="stat-card"><div class="stat-value">${war.score}</div><div class="stat-label">Score</div></div>
+          <div class="stat-card"><div class="stat-value">${war.kills}</div><div class="stat-label">Kills</div></div>
+          <div class="stat-card"><div class="stat-value">${war.assists}</div><div class="stat-label">Assists</div></div>
+          <div class="stat-card"><div class="stat-value">${war.deaths}</div><div class="stat-label">Deaths</div></div>
+          <div class="stat-card"><div class="stat-value">${war.tablets}</div><div class="stat-label">Tablets</div></div>
+          <div class="stat-card"><div class="stat-value">${war.monsters}</div><div class="stat-label">Monsters</div></div>
+        </div>
+      `;
+      return;
+    }
+
     statusEl.className='status-line ok'; statusEl.textContent = 'Match found — here you go:';
     const st = computePersonalStats(name);
     resultEl.innerHTML = `
