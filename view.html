@@ -516,6 +516,37 @@ function wireNameUpdatePanel(){
       }
     }
 
+    // Saved party lineups also store each slot's {name, job} as a
+    // snapshot rather than a live link to the roster — so any lineup
+    // (including ones already shared with the guild) that already has
+    // this person placed needs its slots patched too, or it'll keep
+    // showing their old name/job.
+    {
+      const oldName = member.name;
+      const finalName = updates.name || oldName;
+      const finalJob = updates.job || member.job || '';
+      const { data: allLineups } = await sb.from('party_lineups').select('id,teams').eq('guild_id', statsGuildId);
+      for(const l of (allLineups || [])){
+        let changed = false;
+        const teams = (l.teams || []).map(team => ({
+          ...team,
+          parties: team.parties.map(party => ({
+            ...party,
+            slots: party.slots.map(slot => {
+              if(slot.name === oldName){
+                changed = true;
+                return { ...slot, name: finalName, job: finalJob };
+              }
+              return slot;
+            })
+          }))
+        }));
+        if(changed){
+          await sb.from('party_lineups').update({ teams }).eq('id', l.id);
+        }
+      }
+    }
+
     await loadStatsData(statsGuildId);
     const section = document.getElementById('stats-section');
     if(section){
@@ -523,7 +554,12 @@ function wireNameUpdatePanel(){
       wireStatsLookup();
       wireNameUpdatePanel();
       const freshStatus = document.getElementById('rename-status');
-      if(freshStatus){ freshStatus.className = 'status-line ok'; freshStatus.textContent = 'Updated! The roster now reflects your changes.'; }
+      if(freshStatus){ freshStatus.className = 'status-line ok'; freshStatus.textContent = 'Updated! The roster and any saved lineups now reflect your changes.'; }
+    }
+    // If this rename touched the lineup currently open on this page,
+    // refresh it in place so the visitor sees their new name immediately.
+    if(currentLineup && collectLineupNames(currentLineup).includes(member.name)){
+      await render();
     }
   });
 }
