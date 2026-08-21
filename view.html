@@ -532,21 +532,29 @@ async function render(){
         resultMsg = "Couldn't save — try again.";
         resultCls = 'error';
       } else {
-        // Re-fetch the latest teams right before modifying — if someone else
-        // marked themselves absent moments ago, we must build on THEIR
-        // change, not the possibly-stale copy loaded when this page opened.
-        // (Without this, whoever saves last can accidentally undo an
-        // earlier person's removal.)
-        const { data: latestLineup } = await sb.from('party_lineups').select('teams').eq('id', currentLineup.id).single();
-        const teams = latestLineup ? latestLineup.teams : JSON.parse(JSON.stringify(currentLineup.teams));
-        let changed = false;
-        teams.forEach(t=>t.parties.forEach(p=>p.slots.forEach(s=>{
-          if(s.name === name){ s.name=''; s.job=''; changed=true; }
-        })));
-        if(changed){
-          await sb.from('party_lineups').update({ teams }).eq('id', currentLineup.id);
+        // Only pull them out of THIS lineup's parties if the absence is for
+        // THIS lineup's date — an advance absence for a future war day
+        // should just be logged, not rip them out of an unrelated lineup
+        // that happens to be open right now.
+        if(date === (currentLineup.date || '')){
+          // Re-fetch the latest teams right before modifying — if someone else
+          // marked themselves absent moments ago, we must build on THEIR
+          // change, not the possibly-stale copy loaded when this page opened.
+          // (Without this, whoever saves last can accidentally undo an
+          // earlier person's removal.)
+          const { data: latestLineup } = await sb.from('party_lineups').select('teams').eq('id', currentLineup.id).single();
+          const teams = latestLineup ? latestLineup.teams : JSON.parse(JSON.stringify(currentLineup.teams));
+          let changed = false;
+          teams.forEach(t=>t.parties.forEach(p=>p.slots.forEach(s=>{
+            if(s.name === name){ s.name=''; s.job=''; changed=true; }
+          })));
+          if(changed){
+            await sb.from('party_lineups').update({ teams }).eq('id', currentLineup.id);
+          }
+          resultMsg = changed ? "Got it — you're marked absent and removed from your party." : 'Got it — marked as absent.';
+        } else {
+          resultMsg = "Got it — you're marked absent for that date. Since it's not this lineup's date, your current spot here is untouched.";
         }
-        resultMsg = changed ? "Got it — you're marked absent and removed from your party." : 'Got it — marked as absent.';
         resultCls = 'ok';
         // Fire-and-forget: notify Discord automatically. Never blocks the
         // guildmate's confirmation, and never surfaces an error to them —
