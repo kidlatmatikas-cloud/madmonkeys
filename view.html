@@ -126,6 +126,8 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
 
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -344,6 +346,11 @@ function wireStatsLookup(){
   scopeSel.addEventListener('change', ()=>{
     warWrap.classList.toggle('hidden', scopeSel.value !== 'specific');
   });
+  const resultEl = document.getElementById('stats-result');
+  resultEl.addEventListener('click', (e)=>{
+    const btn2 = e.target.closest('[data-export-card]');
+    if(btn2) exportShareCard(btn2.dataset.exportCard);
+  });
   const submit = ()=>{
     const name = document.getElementById('stats-name').value;
     const mmid = document.getElementById('stats-mmid').value.trim();
@@ -371,8 +378,10 @@ function wireStatsLookup(){
       statusEl.className='status-line ok'; statusEl.textContent = 'Match found — here you go:';
       if(!war.attended){
         resultEl.innerHTML = `<div class="empty-state" style="padding:14px 4px;">No recorded entry for you on ${escapeHtml(war.date)}${war.opposing_guild?' vs '+escapeHtml(war.opposing_guild):''} — you may not have been included in that record.</div>`;
+        lastCardData = null;
         return;
       }
+      lastCardData = { kind:'specific', name, job: member.job, war };
       resultEl.innerHTML = `
         <div class="stat-card-grid">
           <div class="stat-card"><div class="stat-value">${escapeHtml(war.date)}</div><div class="stat-label">Date</div></div>
@@ -385,12 +394,17 @@ function wireStatsLookup(){
           <div class="stat-card"><div class="stat-value">${war.tablets}</div><div class="stat-label">Tablets</div></div>
           <div class="stat-card"><div class="stat-value">${war.monsters}</div><div class="stat-label">Monsters</div></div>
         </div>
+        <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn gold small" data-export-card="image">Download as Image</button>
+          <button class="btn ghost small" data-export-card="pdf">Download as PDF</button>
+        </div>
       `;
       return;
     }
 
     statusEl.className='status-line ok'; statusEl.textContent = 'Match found — here you go:';
     const st = computePersonalStats(name);
+    lastCardData = { kind:'alltime', name, job: member.job, stats: st };
     resultEl.innerHTML = `
       <div class="stat-card-grid">
         <div class="stat-card"><div class="stat-value">${st.attended}/${st.totalSessions}</div><div class="stat-label">Sessions Attended</div></div>
@@ -404,9 +418,102 @@ function wireStatsLookup(){
         <div class="stat-card"><div class="stat-value">${st.tablets}</div><div class="stat-label">Total Tablets</div></div>
         <div class="stat-card"><div class="stat-value">${st.monsters}</div><div class="stat-label">Total Monsters</div></div>
       </div>
+      <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn gold small" data-export-card="image">Download as Image</button>
+        <button class="btn ghost small" data-export-card="pdf">Download as PDF</button>
+      </div>
     `;
   };
   btn.addEventListener('click', submit);
+}
+
+/* ========================= Personal war card export ========================= */
+let lastCardData = null;
+
+function buildShareCardHTML(){
+  if(!lastCardData) return '';
+  const guildName = (document.getElementById('masthead-title')?.textContent || '// WAR LOG').replace('// War Log','').replace('// WAR LOG','').trim() || 'Guild';
+  const { kind, name, job } = lastCardData;
+  const jobIcon = jobIconSvg(job || '');
+
+  let subtitle, mainValue, mainLabel, cells;
+  if(kind === 'specific'){
+    const w = lastCardData.war;
+    subtitle = `${w.opposing_guild ? 'vs '+w.opposing_guild+' — ' : ''}${w.date}`;
+    mainValue = w.score;
+    mainLabel = w.mvp ? 'MVP · SCORE' : (w.rank ? `RANK ${w.rank} · SCORE` : 'SCORE');
+    cells = [
+      { v: w.kills, l:'Kills' }, { v: w.assists, l:'Assists' }, { v: w.deaths, l:'Deaths' },
+      { v: w.tablets, l:'Tablets' }, { v: w.monsters, l:'Monsters' }, { v: w.mvp?'Yes':'No', l:'MVP' },
+    ];
+  } else {
+    const st = lastCardData.stats;
+    subtitle = 'All-Time Record';
+    mainValue = st.avgScore.toFixed(0);
+    mainLabel = 'AVG SCORE';
+    cells = [
+      { v: `${st.attended}/${st.totalSessions}`, l:'Sessions' }, { v: st.attendance.toFixed(0)+'%', l:'Attendance' },
+      { v: st.best, l:'Best Score' }, { v: st.mvps, l:'MVPs' },
+      { v: st.kills, l:'Kills' }, { v: st.assists, l:'Assists' },
+      { v: st.deaths, l:'Deaths' }, { v: st.tablets, l:'Tablets' }, { v: st.monsters, l:'Monsters' },
+    ];
+  }
+
+  return `
+    <div style="width:680px; box-sizing:border-box; padding:40px; font-family:'Inter',sans-serif; color:#eceef2; background:linear-gradient(160deg,#1a1d24,#13151a); border:1px solid #2a3040; border-radius:18px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:28px;">
+        <div style="font-size:13px; font-weight:800; letter-spacing:.14em; color:#5b8def; text-transform:uppercase;">// War Log</div>
+        <div style="font-size:12.5px; font-weight:600; letter-spacing:.06em; color:#8b93a1; text-transform:uppercase;">${escapeHtml(guildName)}</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">
+        <span style="display:inline-flex; width:26px; height:26px;">${jobIcon}</span>
+        <div style="font-size:32px; font-weight:800; letter-spacing:-.01em;">${escapeHtml(name)}</div>
+      </div>
+      <div style="font-size:13.5px; font-weight:600; letter-spacing:.05em; color:#8b93a1; text-transform:uppercase; margin-bottom:26px;">${escapeHtml(job||'')}${job?' · ':''}${escapeHtml(subtitle)}</div>
+      <div style="text-align:center; padding:22px 0; margin-bottom:26px; background:rgba(91,141,239,.08); border:1px solid #4a78c9; border-radius:14px;">
+        <div style="font-size:52px; font-weight:800; color:#5b8def; line-height:1;">${mainValue}</div>
+        <div style="font-size:12.5px; font-weight:700; letter-spacing:.12em; color:#8b93a1; margin-top:8px;">${mainLabel}</div>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px;">
+        ${cells.map(c=>`
+          <div style="background:#15171d; border:1px solid #2a3040; border-radius:10px; padding:14px 8px; text-align:center;">
+            <div style="font-size:20px; font-weight:800;">${escapeHtml(String(c.v))}</div>
+            <div style="font-size:10.5px; font-weight:700; letter-spacing:.08em; color:#8b93a1; text-transform:uppercase; margin-top:5px;">${c.l}</div>
+          </div>
+        `).join('')}
+      </div>
+      <div style="text-align:center; margin-top:26px; font-size:11px; color:#575e6b; letter-spacing:.05em;">Generated ${new Date().toISOString().slice(0,10)} · Guild War Log</div>
+    </div>
+  `;
+}
+
+async function exportShareCard(kind){
+  if(!lastCardData || typeof html2canvas === 'undefined') return;
+  let holder = document.getElementById('share-card-offscreen');
+  if(!holder){
+    holder = document.createElement('div');
+    holder.id = 'share-card-offscreen';
+    holder.style.position = 'fixed';
+    holder.style.left = '-9999px';
+    holder.style.top = '0';
+    document.body.appendChild(holder);
+  }
+  holder.innerHTML = buildShareCardHTML();
+  const cardEl = holder.firstElementChild;
+  const canvas = await html2canvas(cardEl, { scale:2, backgroundColor:'#13151a' });
+  const filename = `war-log-${lastCardData.name.replace(/[^a-z0-9]/gi,'_')}-${kind==='specific'&&lastCardData.war?lastCardData.war.date:'alltime'}`;
+  if(kind === 'image'){
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = `${filename}.png`;
+    a.click();
+  } else if(kind === 'pdf'){
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation:'portrait', unit:'px', format:[canvas.width, canvas.height] });
+    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, canvas.width, canvas.height);
+    pdf.save(`${filename}.pdf`);
+  }
+  holder.innerHTML = '';
 }
 
 function renderNameUpdatePanel(){
