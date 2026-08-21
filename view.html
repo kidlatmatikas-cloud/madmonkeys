@@ -184,10 +184,12 @@ async function loadAbsences(lineupId){
 
 let guildRoster = [];
 let guildSessions = [];
+let statsGuildId = null;
 
 async function loadStatsData(guildId){
+  statsGuildId = guildId;
   const [{ data: members }, { data: sess }] = await Promise.all([
-    sb.from('roster_members').select('mmid,name').eq('guild_id', guildId).order('name'),
+    sb.from('roster_members').select('id,mmid,name,job').eq('guild_id', guildId).order('name'),
     sb.from('sessions').select('*, session_entries(*)').eq('guild_id', guildId)
   ]);
   guildRoster = members || [];
@@ -407,6 +409,125 @@ function wireStatsLookup(){
   btn.addEventListener('click', submit);
 }
 
+function renderNameUpdatePanel(){
+  const nameOptions = guildRoster.map(m=>`<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join('');
+  const jobOptions = Object.keys(JOB_ICONS).map(j=>`<option value="${escapeHtml(j)}">${escapeHtml(j)}</option>`).join('');
+  return `
+    <div class="hud-panel">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <h3 class="section-title" style="font-size:16px;">Updated Your Name?</h3>
+      <p class="section-hint">Changed your in-game name (or job)? Verify with your UID below and the roster updates automatically — no need to wait for an officer.</p>
+      <div class="field-row">
+        <div>
+          <label for="rename-name">Your Current Name</label>
+          <select id="rename-name"><option value="">— Select your name —</option>${nameOptions}</select>
+        </div>
+        <div>
+          <label for="rename-mmid">Your UID</label>
+          <input type="text" id="rename-mmid" placeholder="e.g. UID004">
+        </div>
+      </div>
+      <div class="field-row">
+        <div>
+          <label for="rename-new-name">New Name</label>
+          <input type="text" id="rename-new-name" placeholder="Exact in-game name">
+          <div style="font-size:12px;color:var(--gold);margin-top:6px;line-height:1.5;">⚠ Enter it exactly as it appears in-game — capitalization and spacing included.</div>
+        </div>
+        <div>
+          <label for="rename-new-job">New Job <span style="text-transform:none;font-weight:500;color:var(--ink-faint);">(optional)</span></label>
+          <select id="rename-new-job"><option value="">— Keep current job —</option>${jobOptions}</select>
+        </div>
+      </div>
+      <button class="btn gold small" id="rename-submit-btn">Update My Info</button>
+      <div class="status-line" id="rename-status"></div>
+    </div>
+  `;
+}
+
+function wireNameUpdatePanel(){
+  const btn = document.getElementById('rename-submit-btn');
+  if(!btn) return;
+  btn.addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('rename-status');
+    const currentName = document.getElementById('rename-name').value;
+    const uid = document.getElementById('rename-mmid').value.trim();
+    const newName = document.getElementById('rename-new-name').value.trim();
+    const newJob = document.getElementById('rename-new-job').value;
+
+    if(!currentName || !uid){
+      statusEl.className = 'status-line error';
+      statusEl.textContent = 'Select your name and enter your UID first.';
+      return;
+    }
+    const member = guildRoster.find(m=>m.name===currentName);
+    if(!member || String(member.mmid||'').trim().toLowerCase() !== uid.toLowerCase()){
+      statusEl.className = 'status-line error';
+      statusEl.textContent = "Name and UID don't match our records.";
+      return;
+    }
+    if(!newName && !newJob){
+      statusEl.className = 'status-line error';
+      statusEl.textContent = 'Enter a new name or pick a new job to update.';
+      return;
+    }
+
+    const updates = {};
+    if(newName && newName !== member.name){
+      const taken = guildRoster.some(m => m.id !== member.id && m.name === newName);
+      if(taken){
+        statusEl.className = 'status-line error';
+        statusEl.textContent = 'That name is already taken by someone else on the roster — double check the spelling.';
+        return;
+      }
+      updates.name = newName;
+    }
+    if(newJob) updates.job = newJob;
+
+    if(Object.keys(updates).length === 0){
+      statusEl.className = 'status-line';
+      statusEl.textContent = 'No changes to save.';
+      return;
+    }
+
+    btn.disabled = true;
+    statusEl.className = 'status-line';
+    statusEl.textContent = 'Saving…';
+
+    const { error } = await sb.from('roster_members').update(updates).eq('id', member.id);
+    if(error){
+      btn.disabled = false;
+      statusEl.className = 'status-line error';
+      statusEl.textContent = error.code === '23505'
+        ? 'That name is already taken by someone else on the roster.'
+        : "Couldn't save — try again in a moment.";
+      return;
+    }
+
+    // Historical war records store each player's name as text (not a
+    // live link to the roster), so a rename won't retroactively show
+    // up in past sessions unless we update those rows too — this keeps
+    // your attendance/stat history matched to your new name.
+    if(updates.name){
+      const { data: sessRows } = await sb.from('sessions').select('id').eq('guild_id', statsGuildId);
+      const sessionIds = (sessRows||[]).map(s=>s.id);
+      if(sessionIds.length){
+        await sb.from('session_entries').update({ name: updates.name }).eq('name', member.name).in('session_id', sessionIds);
+      }
+    }
+
+    await loadStatsData(statsGuildId);
+    const section = document.getElementById('stats-section');
+    if(section){
+      section.innerHTML = `${renderTopScorersPanel()}${renderStatsLookupPanel()}${renderNameUpdatePanel()}`;
+      wireStatsLookup();
+      wireNameUpdatePanel();
+      const freshStatus = document.getElementById('rename-status');
+      if(freshStatus){ freshStatus.className = 'status-line ok'; freshStatus.textContent = 'Updated! The roster now reflects your changes.'; }
+    }
+  });
+}
+
 async function renderAbsenceList(lineupId){
   const el = document.getElementById('absence-list');
   if(!el) return;
@@ -451,8 +572,11 @@ async function render(){
   const names = collectLineupNames(lineup);
 
   content.innerHTML = `
-    ${renderTopScorersPanel()}
-    ${renderStatsLookupPanel()}
+    <div id="stats-section">
+      ${renderTopScorersPanel()}
+      ${renderStatsLookupPanel()}
+      ${renderNameUpdatePanel()}
+    </div>
     <div class="hud-panel">
       <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
       <span class="corner corner-bl"></span><span class="corner corner-br"></span>
@@ -571,6 +695,7 @@ async function render(){
   });
 
   wireStatsLookup();
+  wireNameUpdatePanel();
   await renderAbsenceList(lineup.id);
 }
 render();
