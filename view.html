@@ -430,7 +430,7 @@ function renderNameUpdatePanel(){
       </div>
       <div class="field-row">
         <div>
-          <label for="rename-new-name">New Name</label>
+          <label for="rename-new-name">New Name <span style="text-transform:none;font-weight:500;color:var(--magenta);">(required)</span></label>
           <input type="text" id="rename-new-name" placeholder="Exact in-game name">
           <div style="font-size:12px;color:var(--gold);margin-top:6px;line-height:1.5;">⚠ Enter it exactly as it appears in-game — capitalization and spacing included.</div>
         </div>
@@ -455,9 +455,19 @@ function wireNameUpdatePanel(){
     const newName = document.getElementById('rename-new-name').value.trim();
     const newJob = document.getElementById('rename-new-job').value;
 
-    if(!currentName || !uid){
+    if(!currentName){
       statusEl.className = 'status-line error';
-      statusEl.textContent = 'Select your name and enter your UID first.';
+      statusEl.textContent = 'Select your current name first.';
+      return;
+    }
+    if(!uid){
+      statusEl.className = 'status-line error';
+      statusEl.textContent = 'Enter your UID to verify it\'s you.';
+      return;
+    }
+    if(!newName){
+      statusEl.className = 'status-line error';
+      statusEl.textContent = 'Enter your new name.';
       return;
     }
     const member = guildRoster.find(m=>m.name===currentName);
@@ -466,14 +476,9 @@ function wireNameUpdatePanel(){
       statusEl.textContent = "Name and UID don't match our records.";
       return;
     }
-    if(!newName && !newJob){
-      statusEl.className = 'status-line error';
-      statusEl.textContent = 'Enter a new name or pick a new job to update.';
-      return;
-    }
 
     const updates = {};
-    if(newName && newName !== member.name){
+    if(newName !== member.name){
       const taken = guildRoster.some(m => m.id !== member.id && m.name === newName);
       if(taken){
         statusEl.className = 'status-line error';
