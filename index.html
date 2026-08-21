@@ -213,6 +213,7 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -421,6 +422,7 @@ let expandedSessionId = null;
 let expandedDiscordLogKey = null;
 let fullRosterSort = { key:'name', dir:'asc' };
 let fullRosterJobFilter = new Set(); // multi-select — empty means "All Jobs"
+let fullRosterSearch = '';
 let frSelected = new Set();
 let attendanceSort = { key:'attendance', dir:'desc' };
 
@@ -1675,6 +1677,7 @@ function renderSessionBody(id){
       <span class="status-line" id="discord-status-${id}" style="margin:0;"></span>
       <div style="display:flex; gap:10px;">
         <button class="btn ghost small" data-post-discord="${id}">Post to Discord</button>
+        <button class="btn ghost small" data-export-image="${id}">Export as Image</button>
         ${isAdmin() ? `<button class="btn danger small" data-delete-session="${id}">Delete session</button>` : ''}
       </div>
     </div>
@@ -1683,6 +1686,11 @@ function renderSessionBody(id){
     const statusEl = $('discord-status-'+id);
     if(statusEl){ statusEl.className='status-line'; statusEl.textContent='Posting…'; }
     await postDiscordReport(s.date, statusEl);
+  });
+  body.querySelector('[data-export-image]').addEventListener('click', async ()=>{
+    const statusEl = $('discord-status-'+id);
+    const card = buildSessionExportCard(s);
+    await exportCardAsImage(card, `${(s.event_name||'session').replace(/[^a-z0-9]+/gi,'-')}-${s.date||''}.png`, statusEl);
   });
   body.querySelector('[data-save-date]').addEventListener('click', async ()=>{
     const newDate = $('edit-date-'+id).value;
@@ -1766,6 +1774,93 @@ async function handleRosterExcelFile(file){
   }
 }
 
+/* ========================= Export as Image ========================= */
+async function exportCardAsImage(innerHtml, filename, statusEl){
+  if(typeof html2canvas === 'undefined'){
+    if(statusEl){ statusEl.className='status-line error'; statusEl.textContent='Image export library not loaded.'; }
+    return;
+  }
+  if(statusEl){ statusEl.className='status-line'; statusEl.textContent='Generating image…'; }
+  const container = document.createElement('div');
+  container.style.cssText = 'position:fixed; left:-9999px; top:0; width:640px;';
+  container.innerHTML = innerHtml;
+  document.body.appendChild(container);
+  try{
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    const canvas = await html2canvas(container, { backgroundColor:'#13151a', scale:2 });
+    const blob = await new Promise(resolve=>canvas.toBlob(resolve, 'image/png'));
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    if(statusEl){ statusEl.className='status-line ok'; statusEl.textContent='Image downloaded.'; }
+  }catch(err){
+    if(statusEl){ statusEl.className='status-line error'; statusEl.textContent="Couldn't generate image — "+(err.message||'try again.'); }
+  }finally{
+    document.body.removeChild(container);
+  }
+}
+function th(text){ return `<th style="text-align:right; padding:6px 4px; color:#8b93a1; text-transform:uppercase; font-size:10.5px; font-family:'Inter',sans-serif;">${text}</th>`; }
+function buildSessionExportCard(s){
+  const outcome = sessionOutcome(s);
+  const scoreLine = (s.our_score!=null || s.opponent_score!=null) ? `${s.our_score??0} – ${s.opponent_score??0}${outcome?' ('+outcome+')':''}` : '';
+  const rows = [...(s.entries||[])].sort((a,b)=>b.score-a.score);
+  return `
+    <div style="width:640px; padding:28px; background:#13151a; font-family:'Inter',sans-serif; color:#eceef2;">
+      <div style="font-size:22px; font-weight:800;">${escapeHtml(s.event_name||'WoE')}${s.opposing_guild?' vs '+escapeHtml(s.opposing_guild):''}</div>
+      <div style="font-size:13px; color:#8b93a1; margin:4px 0 20px;">${escapeHtml(s.date||'')}${s.role?' · '+escapeHtml(s.role):''}${scoreLine?' · '+escapeHtml(scoreLine):''}</div>
+      <table style="width:100%; border-collapse:collapse; font-size:13px; font-family:'Inter',sans-serif;">
+        <thead><tr style="border-bottom:1px solid #333;">
+          <th style="text-align:left; padding:6px 4px; color:#8b93a1; text-transform:uppercase; font-size:10.5px;">Rank</th>
+          <th style="text-align:left; padding:6px 4px; color:#8b93a1; text-transform:uppercase; font-size:10.5px;">Name</th>
+          ${th('Tablets')}${th('Kills')}${th('Assists')}${th('Deaths')}${th('Score')}
+        </tr></thead>
+        <tbody>
+          ${rows.map(r=>`<tr style="border-bottom:1px solid #22242b;">
+            <td style="padding:7px 4px;">${r.rank && String(r.rank).toUpperCase()==='MVP' ? '\u2605 MVP' : escapeHtml(r.rank||'\u2014')}</td>
+            <td style="padding:7px 4px; font-weight:600;">${escapeHtml(r.name)}</td>
+            <td style="padding:7px 4px; text-align:right;">${r.tablets}</td>
+            <td style="padding:7px 4px; text-align:right;">${r.kills}</td>
+            <td style="padding:7px 4px; text-align:right;">${r.assists}</td>
+            <td style="padding:7px 4px; text-align:right;">${r.deaths}</td>
+            <td style="padding:7px 4px; text-align:right; font-weight:700; color:#5b8def;">${r.score}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <div style="margin-top:20px; font-size:10.5px; color:#575e6b;">Guild War Log</div>
+    </div>
+  `;
+}
+function buildPartyReportExportCard(l, report){
+  return `
+    <div style="width:640px; padding:28px; background:#13151a; font-family:'Inter',sans-serif; color:#eceef2;">
+      <div style="font-size:22px; font-weight:800;">${escapeHtml(l.name||'Lineup')}</div>
+      <div style="font-size:13px; color:#8b93a1; margin:4px 0 20px;">${escapeHtml(l.date||'')}${l.opposing_guild?' vs '+escapeHtml(l.opposing_guild):''}</div>
+      ${report.map(team=>`
+        <div style="font-size:13px; font-weight:700; color:#4a78c9; margin:16px 0 8px;">${escapeHtml(team.name)}</div>
+        <table style="width:100%; border-collapse:collapse; font-size:13px; font-family:'Inter',sans-serif; margin-bottom:8px;">
+          <thead><tr style="border-bottom:1px solid #333;">
+            <th style="text-align:left; padding:6px 4px; color:#8b93a1; text-transform:uppercase; font-size:10.5px;">Party</th>
+            ${th('Filled')}${th('Kills')}${th('Assists')}${th('Tablets')}${th('Deaths')}${th('Avg Score')}
+          </tr></thead>
+          <tbody>
+            ${team.parties.map(p=>`<tr style="border-bottom:1px solid #22242b;">
+              <td style="padding:7px 4px; font-weight:600;">${escapeHtml(p.name)}</td>
+              <td style="padding:7px 4px; text-align:right;">${p.memberCount}/5</td>
+              <td style="padding:7px 4px; text-align:right;">${p.kills}</td>
+              <td style="padding:7px 4px; text-align:right;">${p.assists}</td>
+              <td style="padding:7px 4px; text-align:right;">${p.tablets}</td>
+              <td style="padding:7px 4px; text-align:right;">${p.deaths}</td>
+              <td style="padding:7px 4px; text-align:right; font-weight:700; color:#5b8def;">${p.avgScore.toFixed(0)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      `).join('')}
+      <div style="margin-top:12px; font-size:10.5px; color:#575e6b;">Guild War Log</div>
+    </div>
+  `;
+}
 function exportRosterExcel(){
   if(typeof XLSX === 'undefined'){ setStatus('Export library not loaded.', 'error'); return; }
   const sorted = [...roster].sort((a,b)=>{
@@ -1808,12 +1903,24 @@ async function syncJobAcrossLineups(name, newJob){
 }
 function renderFullRosterTab(){
   frSelected = new Set([...frSelected].filter(id=>roster.some(m=>m.id===id)));
-  const filtered = fullRosterJobFilter.size ? roster.filter(m=>fullRosterJobFilter.has(m.job)) : roster;
+  const searchTerm = fullRosterSearch.trim().toLowerCase();
+  let filtered = fullRosterJobFilter.size ? roster.filter(m=>fullRosterJobFilter.has(m.job)) : roster;
+  if(searchTerm){
+    filtered = filtered.filter(m=>(m.name||'').toLowerCase().includes(searchTerm) || (m.mmid||'').toLowerCase().includes(searchTerm));
+  }
   const sorted = [...filtered].sort((a,b)=>{
     const av=(a[fullRosterSort.key]||'').toString(), bv=(b[fullRosterSort.key]||'').toString();
     return av.localeCompare(bv,undefined,{numeric:true}) * (fullRosterSort.dir==='asc'?1:-1);
   });
   const arrow = key => fullRosterSort.key===key ? (fullRosterSort.dir==='asc'?' \u25B2':' \u25BC') : '';
+  const headingParts = [];
+  if(searchTerm || fullRosterJobFilter.size){
+    headingParts.push(`${sorted.length} of ${roster.length} members`);
+    if(searchTerm) headingParts.push(`matching "${escapeHtml(fullRosterSearch.trim())}"`);
+    if(fullRosterJobFilter.size) headingParts.push([...fullRosterJobFilter].map(escapeHtml).join(', '));
+  } else {
+    headingParts.push(`${roster.length} member${roster.length===1?'':'s'}`);
+  }
   $('fullroster-content').innerHTML = `
     <h2 class="section-title">Full Roster</h2>
     <p class="section-hint">UID, Name, and Job — members here are who you can assign into parties and who show up in Attendance.</p>
@@ -1836,8 +1943,12 @@ function renderFullRosterTab(){
         <button class="btn gold small" id="fr-bulk-btn" style="margin-top:8px;">Add all</button>
       </div>
     </details>
-    <div style="margin:16px 0 0;">
-      <h3 style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px;">${fullRosterJobFilter.size ? `${sorted.length} of ${roster.length} members — ${[...fullRosterJobFilter].map(escapeHtml).join(', ')}` : `${roster.length} member${roster.length===1?'':'s'}`}</h3>
+    <div style="margin:16px 0 0; max-width:340px;">
+      <label for="fr-search">Search</label>
+      <input type="text" id="fr-search" placeholder="Search by name or UID…" value="${escapeHtml(fullRosterSearch)}">
+    </div>
+    <div style="margin:14px 0 0;">
+      <h3 style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px;">${headingParts.join(' — ')}</h3>
       <div style="display:flex; flex-wrap:wrap; gap:7px;">
         <button class="chip job-filter-chip ${fullRosterJobFilter.size===0?'active':''}" data-job-filter="">All Jobs</button>
         ${JOB_OPTIONS.map(j=>`<button class="chip job-filter-chip ${fullRosterJobFilter.has(j)?'active':''}" data-job-filter="${escapeHtml(j)}">${jobIconSvg(j)}${escapeHtml(j)}</button>`).join('')}
@@ -1879,6 +1990,13 @@ function renderFullRosterTab(){
   $('fr-import-btn').addEventListener('click', ()=>$('fr-excel-input').click());
   $('fr-excel-input').addEventListener('change', e=>handleRosterExcelFile(e.target.files[0]));
   $('fr-export-btn').addEventListener('click', exportRosterExcel);
+  $('fr-search').addEventListener('input', e=>{
+    fullRosterSearch = e.target.value;
+    const cursorPos = e.target.selectionStart;
+    renderFullRosterTab();
+    const freshInput = $('fr-search');
+    if(freshInput){ freshInput.focus(); freshInput.setSelectionRange(cursorPos, cursorPos); }
+  });
   document.querySelectorAll('[data-job-filter]').forEach(chip=>chip.addEventListener('click', ()=>{
     const job = chip.dataset.jobFilter;
     if(job===''){ fullRosterJobFilter.clear(); }
@@ -2327,6 +2445,10 @@ function tplPartyReport(l){
         </tbody>
       </table>
     `).join('')}
+    <div style="display:flex; justify-content:flex-end; align-items:center; gap:10px; margin-top:6px;">
+      <span class="status-line" id="party-report-export-status" style="margin:0;"></span>
+      <button class="btn ghost small" id="export-party-report-btn">Export as Image</button>
+    </div>
   </details>`;
 }
 function backToList(){
@@ -2500,6 +2622,13 @@ function renderEditor(){
   }));
   const reportDetails = document.getElementById('party-report-details');
   if(reportDetails) reportDetails.addEventListener('toggle', ()=>{ partyReportOpen = reportDetails.open; });
+  const exportReportBtn = $('export-party-report-btn');
+  if(exportReportBtn) exportReportBtn.addEventListener('click', async ()=>{
+    const statusEl = $('party-report-export-status');
+    const report = computePartyReport(currentLineup);
+    const card = buildPartyReportExportCard(currentLineup, report);
+    await exportCardAsImage(card, `${(currentLineup.name||'party-report').replace(/[^a-z0-9]+/gi,'-')}-${currentLineup.date||''}.png`, statusEl);
+  });
 }
 function tplTeam(team, ti, crossBooked){
   return `
