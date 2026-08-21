@@ -1278,6 +1278,8 @@ function renderDiscordReview(){
 
   const rosterOptions = (selected) => '<option value="">— No match —</option>' + roster.map(m=>`<option value="${escapeHtml(m.name)}" ${m.name===selected?'selected':''}>${escapeHtml(m.name)}</option>`).join('');
   const willRecord = discordAttendees.filter(a=>a.matchedName && !a.alreadyRecorded).length;
+  const alreadyCount = discordAttendees.filter(a=>a.matchedName && a.alreadyRecorded).length;
+  const noMatchCount = discordAttendees.filter(a=>!a.matchedName).length;
 
   // Reverse check: who's on the {role} scoreboard for this date but wasn't
   // spotted in this Discord screenshot — could mean they left the call
@@ -1306,7 +1308,7 @@ function renderDiscordReview(){
       ${notInDiscord.map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('')}
     </div>` : ''}
     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; flex-wrap:wrap; gap:10px;">
-      <span style="font-size:12.5px;color:var(--ink-soft);">${willRecord} member(s) will be marked present</span>
+      <span style="font-size:12.5px;color:var(--ink-soft);">${discordAttendees.length} scanned — ${alreadyCount} already on the ${escapeHtml(discordRole)} scoreboard, ${noMatchCount} unmatched, <strong style="color:var(--ink);">${willRecord} new</strong> to record</span>
       <div style="display:flex; gap:8px;">
         <button class="btn ghost small" id="nf-discord-clear">Clear</button>
         <button class="btn gold small" id="nf-discord-record">Record Attendance</button>
@@ -1496,14 +1498,19 @@ function renderSessionBody(id){
   };
   const rows = hasAnyRank ? [...s.entries].sort((a,b)=>rankSortValue(a)-rankSortValue(b)) : [...s.entries].sort((a,b)=>b.score-a.score);
   const top = [...s.entries].sort((a,b)=>b.score-a.score)[0];
-  const isMvp = r=> r.rank ? String(r.rank).toUpperCase()==='MVP' : (top && r.name===top.name && r.score===top.score);
+  const isMvp = r=> r.rank ? String(r.rank).toUpperCase()==='MVP' : (top && top.score>0 && r.name===top.name && r.score===top.score);
 
-  const presentSet = new Set((s.entries||[]).map(r=>r.name));
+  // Absent is tracked across every record for this SAME DATE, not just this
+  // one session — otherwise a Discord Check-In save (which only contains
+  // people not already on the scoreboard) makes everyone else look
+  // "absent" even when they're already recorded elsewhere for that date.
+  const sameDateEntries = sessions.filter(x=>x.date===s.date).flatMap(x=>x.entries||[]);
+  const presentSet = new Set(sameDateEntries.map(r=>r.name));
   const absentees = roster.filter(m=>!presentSet.has(m.name));
   const absentBlock = roster.length===0
     ? '<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);font-size:12px;color:var(--ink-soft);">Add your roster in Full Roster to see who is absent.</div>'
     : `<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);">
-        <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--magenta);margin-bottom:8px;">Absent (${absentees.length} of ${roster.length})</div>
+        <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--magenta);margin-bottom:8px;">Absent (${absentees.length} of ${roster.length}) — across all records for ${escapeHtml(s.date||'this date')}</div>
         ${absentees.length ? absentees.map(m=>`<span class="chip">${escapeHtml(m.name)}${m.job?' · '+escapeHtml(m.job):''}</span>`).join('') : '<div style="font-size:13px;color:var(--ink-soft);">Everyone showed up.</div>'}
       </div>`;
 
