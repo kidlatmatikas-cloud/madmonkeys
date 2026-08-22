@@ -659,16 +659,19 @@ function wireNameUpdatePanel(){
       }
     }
 
-    // Keep officers informed: a durable log entry, plus a Discord ping —
-    // fire-and-forget so neither can block or fail the visitor's save,
-    // since the actual rename is already safely committed above.
-    sb.from('profile_changes').insert({
+    // Keep officers informed: a durable log entry, plus a Discord ping.
+    // The Discord post stays fire-and-forget (a plain fetch, safe to not
+    // await), but the Supabase insert below is properly awaited — a
+    // bare, un-awaited call on the query builder never actually sends
+    // its request, since supabase-js only dispatches once something
+    // consumes the returned thenable.
+    await sb.from('profile_changes').insert({
       guild_id: statsGuildId,
       old_name: member.name,
       new_name: updates.name || null,
       old_job: member.job || null,
       new_job: updates.job || null,
-    }); // fire-and-forget, matches the link_visits pattern above
+    });
     fetch('/api/post-profile-change', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
@@ -734,7 +737,7 @@ async function render(){
     return;
   }
   currentLineup = lineup;
-  sb.from('link_visits').insert({ lineup_id: lineup.id }); // fire-and-forget, don't block rendering for the visitor
+  sb.from('link_visits').insert({ lineup_id: lineup.id }).then(()=>{}); // stays non-blocking for the visitor, but .then() is required to actually dispatch the request — a bare un-awaited call on the query builder never fires
 
   document.getElementById('masthead-title').textContent = (lineup.guild_settings?.name || 'Guild') + ' // War Log';
   document.title = lineup.name + ' — Guild War Log';
