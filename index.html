@@ -474,6 +474,25 @@ let draftOpponentScore = '';
 
 const $ = (id) => document.getElementById(id);
 const TAB_IDS = ['overview','new','log','discordlog','fullroster','attendance','parties','officers','activitylog'];
+// Access tiers, from most to least restricted. 'level1' is the first of
+// what may become several restricted tiers over time — add more here
+// (e.g. 'level2') as new tiers are needed, without touching the rest of
+// the access-control logic below.
+const ROLE_TAB_ACCESS = {
+  level1: ['new','discordlog'],
+};
+function allowedTabsForRole(role){
+  if(role === 'admin') return TAB_IDS;
+  if(ROLE_TAB_ACCESS[role]) return ROLE_TAB_ACCESS[role];
+  return TAB_IDS.filter(t => t!=='officers' && t!=='activitylog'); // regular officer: everything except admin-only tabs
+}
+function applyTabAccess(){
+  if(!currentOfficer) return;
+  const allowed = allowedTabsForRole(currentOfficer.role);
+  document.querySelectorAll('.tab-btn[data-tab]').forEach(btn=>{
+    btn.classList.toggle('hidden', !allowed.includes(btn.dataset.tab));
+  });
+}
 
 /* ========================= Auth =========================
    Officer accounts now live in the `officers` table (see officers_schema.sql).
@@ -510,8 +529,7 @@ function showApp(){
   $('app-masthead').classList.remove('hidden');
   $('app-section').classList.remove('hidden');
   $('signout-btn').classList.remove('hidden');
-  $('officers-tab-btn').classList.toggle('hidden', !(currentOfficer && currentOfficer.role === 'admin'));
-  $('activitylog-tab-btn').classList.toggle('hidden', !(currentOfficer && currentOfficer.role === 'admin'));
+  applyTabAccess();
   boot();
 }
 function showLogin(){
@@ -636,9 +654,15 @@ function officerActionButtons(o){
   } else if(o.status === 'approved'){
     if(o.id !== currentOfficer.id){
       btns.push(`<button class="btn ghost small" data-officer-action="revoke" data-officer-id="${o.id}" data-officer-username="${u}">Revoke</button>`);
-      btns.push(o.role === 'admin'
-        ? `<button class="btn ghost small" data-officer-action="demote" data-officer-id="${o.id}" data-officer-username="${u}">Remove Admin</button>`
-        : `<button class="btn ghost small" data-officer-action="promote" data-officer-id="${o.id}" data-officer-username="${u}">Make Admin</button>`);
+      if(o.role === 'admin'){
+        btns.push(`<button class="btn ghost small" data-officer-action="demote" data-officer-id="${o.id}" data-officer-username="${u}">Remove Admin</button>`);
+      } else if(o.role === 'level1'){
+        btns.push(`<button class="btn ghost small" data-officer-action="unlevel1" data-officer-id="${o.id}" data-officer-username="${u}">Remove Level 1</button>`);
+        btns.push(`<button class="btn ghost small" data-officer-action="promote" data-officer-id="${o.id}" data-officer-username="${u}">Make Admin</button>`);
+      } else {
+        btns.push(`<button class="btn ghost small" data-officer-action="promote" data-officer-id="${o.id}" data-officer-username="${u}">Make Admin</button>`);
+        btns.push(`<button class="btn ghost small" data-officer-action="level1" data-officer-id="${o.id}" data-officer-username="${u}">Set Level 1</button>`);
+      }
     }
   } else if(o.status === 'rejected'){
     btns.push(`<button class="btn small" data-officer-action="approve" data-officer-id="${o.id}" data-officer-username="${u}">Approve</button>`);
@@ -687,7 +711,7 @@ async function renderOfficersTab(){
       <tbody>${list.map(o => `
         <tr>
           <td data-label="Username">${escapeHtml(o.username)}${o.id===currentOfficer.id ? ' (you)' : ''}</td>
-          <td data-label="Role">${o.role === 'admin' ? 'Admin' : 'Officer'}</td>
+          <td data-label="Role">${o.role === 'admin' ? 'Admin' : (o.role === 'level1' ? 'Level 1' : 'Officer')}</td>
           <td data-label="Status"><span class="status-pill status-${o.status}">${o.status}</span></td>
           <td data-label="Requested">${o.created_at ? o.created_at.slice(0,10) : '—'}</td>
           <td data-label="" class="officer-actions">${officerActionButtons(o)}</td>
@@ -705,6 +729,8 @@ async function handleOfficerAction(action, id, username){
   else if(action === 'reject' || action === 'revoke'){ await sb.from('officers').update({ status: 'rejected' }).eq('id', id); await logActivity(action==='reject' ? 'Rejected officer' : 'Revoked officer access', username); }
   else if(action === 'promote'){ await sb.from('officers').update({ role: 'admin' }).eq('id', id); await logActivity('Promoted to admin', username); }
   else if(action === 'demote'){ await sb.from('officers').update({ role: 'officer' }).eq('id', id); await logActivity('Removed admin', username); }
+  else if(action === 'level1'){ await sb.from('officers').update({ role: 'level1' }).eq('id', id); await logActivity('Set Level 1 access', username); }
+  else if(action === 'unlevel1'){ await sb.from('officers').update({ role: 'officer' }).eq('id', id); await logActivity('Removed Level 1 access', username); }
   else if(action === 'delete'){
     if(!confirm('Delete this officer account? This cannot be undone.')) return;
     await sb.from('officers').delete().eq('id', id);
@@ -737,8 +763,7 @@ async function boot(){
       return;
     }
     currentOfficer.role = me.role;
-    $('officers-tab-btn').classList.toggle('hidden', currentOfficer.role !== 'admin');
-    $('activitylog-tab-btn').classList.toggle('hidden', currentOfficer.role !== 'admin');
+    applyTabAccess();
     refreshOfficersBadge();
   }
   const { data: guild } = await sb.from('guild_settings').select('id,name,elite_capacity,sub_capacity').eq('id', guildId).single();
@@ -774,6 +799,10 @@ function renderStatStrip(){
 
 /* ========================= Tabs ========================= */
 function switchTab(tab){
+  if(currentOfficer){
+    const allowed = allowedTabsForRole(currentOfficer.role);
+    if(!allowed.includes(tab)) tab = allowed[0];
+  }
   currentTab = tab;
   TAB_IDS.forEach(t=>$(t+'-tab').classList.toggle('hidden', t!==tab));
   $('editor-tab').classList.add('hidden');
