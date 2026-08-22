@@ -143,6 +143,24 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
 .dash-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:18px; }
 .dash-panel{ position:relative; border:1px solid var(--line); background:rgba(255,255,255,.015); border-radius:9px; padding:16px; }
 .dash-panel-close{ position:absolute; top:10px; right:10px; background:none; border:none; color:var(--ink-faint); cursor:pointer; font-size:13px; line-height:1; padding:4px; border-radius:4px; }
+@media (max-width:700px){
+  .dash-grid{
+    display:flex; overflow-x:auto; scroll-snap-type:x mandatory; gap:14px;
+    padding:4px 4px 14px; margin:0 -4px;
+    -webkit-overflow-scrolling:touch; scrollbar-width:none;
+  }
+  .dash-grid::-webkit-scrollbar{ display:none; }
+  .dash-panel{
+    flex:0 0 87%; scroll-snap-align:center; min-width:0;
+    padding:20px 18px;
+  }
+  .dash-panel h3{ font-size:13px; margin-bottom:14px; }
+  .dash-panel-close{ top:14px; right:14px; font-size:16px; padding:8px; }
+  .lb-row{ padding:9px 0; font-size:15px; }
+  .lb-value{ font-size:16px; }
+  .stat-card-grid{ grid-template-columns:repeat(2,1fr); }
+  .stat-card .stat-value{ font-size:26px; }
+}
 .dash-panel-close:hover{ color:var(--magenta); background:rgba(229,83,92,.1); }
 .show-hidden-panels{ font-size:12.5px; color:var(--ink-soft); cursor:pointer; text-decoration:underline; text-underline-offset:2px; margin-bottom:14px; display:inline-block; }
 .show-hidden-panels:hover{ color:var(--cyan); }
@@ -1105,10 +1123,10 @@ function renderOverviewTab(){
         `).join('') : '<div class="empty-state" style="padding:14px 4px;">No jobs assigned yet.</div>', hiddenPanels)}
     </div>
 
-    <div class="hud-panel" style="margin-top:24px;">
+    <details class="hud-panel" style="margin-top:24px;">
       <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
       <span class="corner corner-bl"></span><span class="corner corner-br"></span>
-      <h3 class="section-title" style="font-size:16px;">Elite vs Sub Performance</h3>
+      <summary class="section-title" style="font-size:16px; cursor:pointer;">Elite vs Sub Performance</summary>
       <p class="section-hint">Total kills, assists, and deaths by team — per war day and overall. Based on the Role set when each record was saved in New Record.</p>
       <div class="stat-card-grid" style="margin-bottom:22px;">
         <div class="stat-card"><div class="stat-value">${totalEliteKills}</div><div class="stat-label">Elite Kills — All Time</div></div>
@@ -1151,7 +1169,7 @@ function renderOverviewTab(){
           }).join('') : '<div class="empty-state" style="padding:14px 4px;">No Sub records yet.</div>'}
         </div>
       </div>
-    </div>
+    </details>
   `;
   $('backup-btn').addEventListener('click', exportFullBackup);
   const showHiddenLink = $('show-hidden-panels');
