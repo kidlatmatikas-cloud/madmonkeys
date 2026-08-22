@@ -659,20 +659,43 @@ function wireNameUpdatePanel(){
       }
     }
 
+    // Keep officers informed: a durable log entry, plus a Discord ping —
+    // fire-and-forget so neither can block or fail the visitor's save,
+    // since the actual rename is already safely committed above.
+    sb.from('profile_changes').insert({
+      guild_id: statsGuildId,
+      old_name: member.name,
+      new_name: updates.name || null,
+      old_job: member.job || null,
+      new_job: updates.job || null,
+    }); // fire-and-forget, matches the link_visits pattern above
+    fetch('/api/post-profile-change', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        oldName: member.name,
+        newName: updates.name || null,
+        oldJob: member.job || null,
+        newJob: updates.job || null,
+      })
+    }).catch(()=>{});
+
     await loadStatsData(statsGuildId);
     const section = document.getElementById('stats-section');
     if(section){
       section.innerHTML = `${renderTopScorersPanel()}${renderStatsLookupPanel()}${renderNameUpdatePanel()}`;
       wireStatsLookup();
       wireNameUpdatePanel();
-      const freshStatus = document.getElementById('rename-status');
-      if(freshStatus){ freshStatus.className = 'status-line ok'; freshStatus.textContent = 'Updated! The roster and any saved lineups now reflect your changes.'; }
     }
     // If this rename touched the lineup currently open on this page,
     // refresh it in place so the visitor sees their new name immediately.
     if(currentLineup && collectLineupNames(currentLineup).includes(member.name)){
       await render();
     }
+    // Set the success message LAST, after any render() above, since
+    // render() rebuilds the whole page (including a fresh #rename-status
+    // element) and would otherwise wipe out this confirmation.
+    const freshStatus = document.getElementById('rename-status');
+    if(freshStatus){ freshStatus.className = 'status-line ok'; freshStatus.textContent = 'Updated! The roster and any saved lineups now reflect your changes.'; }
   });
 }
 
