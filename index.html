@@ -293,6 +293,7 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
       <button class="tab-btn" data-tab="attendance">Attendance</button>
       <button class="tab-btn" data-tab="parties">Party List</button>
       <button class="tab-btn hidden" data-tab="officers" id="officers-tab-btn">Officers<span id="officers-badge" class="tab-badge hidden"></span></button>
+      <button class="tab-btn hidden" data-tab="activitylog" id="activitylog-tab-btn">Activity Log</button>
     </nav>
 
     <div id="overview-tab" class="hud-panel">
@@ -353,6 +354,12 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
       <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
       <span class="corner corner-bl"></span><span class="corner corner-br"></span>
       <div id="officers-content"></div>
+    </div>
+
+    <div id="activitylog-tab" class="hud-panel hidden">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <div id="activitylog-content"></div>
     </div>
   </div>
 
@@ -456,6 +463,7 @@ let discordAttendees = []; // [{ discordName, matchedName, alreadyRecorded }]
 let discordRole = ''; // 'Elite' | 'Sub' — which scoreboard this Discord screenshot should cross-check against
 let discordAttendanceLog = []; // loaded from the discord_attendance table — the persistent, browsable log
 let profileChangeLog = []; // loaded from the profile_changes table
+let activityLog = []; // loaded from the activity_log table
 let eliteCapacity = 40, subCapacity = 40; // war-slot caps, not tied to specific roster names
 let draftEventName = 'WoE';
 let draftDate = todayStr();
@@ -465,7 +473,7 @@ let draftOurScore = '';
 let draftOpponentScore = '';
 
 const $ = (id) => document.getElementById(id);
-const TAB_IDS = ['overview','new','log','discordlog','fullroster','attendance','parties','officers'];
+const TAB_IDS = ['overview','new','log','discordlog','fullroster','attendance','parties','officers','activitylog'];
 
 /* ========================= Auth =========================
    Officer accounts now live in the `officers` table (see officers_schema.sql).
@@ -503,6 +511,7 @@ function showApp(){
   $('app-section').classList.remove('hidden');
   $('signout-btn').classList.remove('hidden');
   $('officers-tab-btn').classList.toggle('hidden', !(currentOfficer && currentOfficer.role === 'admin'));
+  $('activitylog-tab-btn').classList.toggle('hidden', !(currentOfficer && currentOfficer.role === 'admin'));
   boot();
 }
 function showLogin(){
@@ -559,6 +568,7 @@ async function doLogin(){
   }
   currentOfficer = { id: row.id, username: row.username, role: row.role };
   localStorage.setItem(AUTH_FLAG_KEY, JSON.stringify(currentOfficer));
+  logActivity('Logged in', null);
   statusEl.textContent = '';
   showApp();
 }
@@ -619,21 +629,43 @@ $('signout-btn').addEventListener('click', () => {
 /* ========================= Officer approvals (admin tab) ========================= */
 function officerActionButtons(o){
   const btns = [];
+  const u = escapeHtml(o.username);
   if(o.status === 'pending'){
-    btns.push(`<button class="btn small" data-officer-action="approve" data-officer-id="${o.id}">Approve</button>`);
-    btns.push(`<button class="btn ghost small" data-officer-action="reject" data-officer-id="${o.id}">Reject</button>`);
+    btns.push(`<button class="btn small" data-officer-action="approve" data-officer-id="${o.id}" data-officer-username="${u}">Approve</button>`);
+    btns.push(`<button class="btn ghost small" data-officer-action="reject" data-officer-id="${o.id}" data-officer-username="${u}">Reject</button>`);
   } else if(o.status === 'approved'){
     if(o.id !== currentOfficer.id){
-      btns.push(`<button class="btn ghost small" data-officer-action="revoke" data-officer-id="${o.id}">Revoke</button>`);
+      btns.push(`<button class="btn ghost small" data-officer-action="revoke" data-officer-id="${o.id}" data-officer-username="${u}">Revoke</button>`);
       btns.push(o.role === 'admin'
-        ? `<button class="btn ghost small" data-officer-action="demote" data-officer-id="${o.id}">Remove Admin</button>`
-        : `<button class="btn ghost small" data-officer-action="promote" data-officer-id="${o.id}">Make Admin</button>`);
+        ? `<button class="btn ghost small" data-officer-action="demote" data-officer-id="${o.id}" data-officer-username="${u}">Remove Admin</button>`
+        : `<button class="btn ghost small" data-officer-action="promote" data-officer-id="${o.id}" data-officer-username="${u}">Make Admin</button>`);
     }
   } else if(o.status === 'rejected'){
-    btns.push(`<button class="btn small" data-officer-action="approve" data-officer-id="${o.id}">Approve</button>`);
-    btns.push(`<button class="btn danger small" data-officer-action="delete" data-officer-id="${o.id}">Delete</button>`);
+    btns.push(`<button class="btn small" data-officer-action="approve" data-officer-id="${o.id}" data-officer-username="${u}">Approve</button>`);
+    btns.push(`<button class="btn danger small" data-officer-action="delete" data-officer-id="${o.id}" data-officer-username="${u}">Delete</button>`);
   }
   return btns.join(' ');
+}
+async function renderActivityLogTab(){
+  $('activitylog-content').innerHTML = '<div class="status-line">Loading…</div>';
+  await loadActivityLog();
+  $('activitylog-content').innerHTML = `
+    <h2 class="section-title">Activity Log</h2>
+    <p class="section-hint">Officer logins and admin-level actions — who did what, and when. Shows the most recent ${activityLog.length} ${activityLog.length===1?'entry':'entries'}.</p>
+    ${activityLog.length ? `
+    <table class="responsive">
+      <thead><tr><th>Time</th><th>Officer</th><th>Action</th><th>Details</th></tr></thead>
+      <tbody>${activityLog.map(a=>`
+        <tr>
+          <td data-label="Time">${new Date(a.created_at).toLocaleString()}</td>
+          <td data-label="Officer">${escapeHtml(a.officer_username)}</td>
+          <td data-label="Action">${escapeHtml(a.action)}</td>
+          <td data-label="Details">${a.details ? escapeHtml(a.details) : '\u2014'}</td>
+        </tr>
+      `).join('')}</tbody>
+    </table>
+    ` : '<div class="empty-state">No activity logged yet.</div>'}
+  `;
 }
 async function renderOfficersTab(){
   const el = $('officers-content');
@@ -664,18 +696,19 @@ async function renderOfficersTab(){
     </table>` : '<div class="empty-state">No officer accounts yet.</div>'}
   `;
   el.querySelectorAll('[data-officer-action]').forEach(btn => {
-    btn.addEventListener('click', () => handleOfficerAction(btn.dataset.officerAction, btn.dataset.officerId));
+    btn.addEventListener('click', () => handleOfficerAction(btn.dataset.officerAction, btn.dataset.officerId, btn.dataset.officerUsername));
   });
 }
-async function handleOfficerAction(action, id){
+async function handleOfficerAction(action, id, username){
   if(!isAdmin()) return;
-  if(action === 'approve') await sb.from('officers').update({ status: 'approved' }).eq('id', id);
-  else if(action === 'reject' || action === 'revoke') await sb.from('officers').update({ status: 'rejected' }).eq('id', id);
-  else if(action === 'promote') await sb.from('officers').update({ role: 'admin' }).eq('id', id);
-  else if(action === 'demote') await sb.from('officers').update({ role: 'officer' }).eq('id', id);
+  if(action === 'approve'){ await sb.from('officers').update({ status: 'approved' }).eq('id', id); await logActivity('Approved officer', username); }
+  else if(action === 'reject' || action === 'revoke'){ await sb.from('officers').update({ status: 'rejected' }).eq('id', id); await logActivity(action==='reject' ? 'Rejected officer' : 'Revoked officer access', username); }
+  else if(action === 'promote'){ await sb.from('officers').update({ role: 'admin' }).eq('id', id); await logActivity('Promoted to admin', username); }
+  else if(action === 'demote'){ await sb.from('officers').update({ role: 'officer' }).eq('id', id); await logActivity('Removed admin', username); }
   else if(action === 'delete'){
     if(!confirm('Delete this officer account? This cannot be undone.')) return;
     await sb.from('officers').delete().eq('id', id);
+    await logActivity('Deleted officer account', username);
   }
   setStatus('Updated.', 'ok');
   renderOfficersTab();
@@ -705,6 +738,7 @@ async function boot(){
     }
     currentOfficer.role = me.role;
     $('officers-tab-btn').classList.toggle('hidden', currentOfficer.role !== 'admin');
+    $('activitylog-tab-btn').classList.toggle('hidden', currentOfficer.role !== 'admin');
     refreshOfficersBadge();
   }
   const { data: guild } = await sb.from('guild_settings').select('id,name,elite_capacity,sub_capacity').eq('id', guildId).single();
@@ -718,7 +752,7 @@ async function boot(){
     await sb.from('guild_settings').update({ name: newName }).eq('id', guildId);
     setStatus('Guild name updated.', 'ok');
   });
-  await Promise.all([loadRoster(), loadLineups(), loadSessions(), loadDiscordAttendanceLog(), loadProfileChangeLog()]);
+  await Promise.all([loadRoster(), loadLineups(), loadSessions(), loadDiscordAttendanceLog(), loadProfileChangeLog(), loadActivityLog()]);
   renderStatStrip();
   switchTab('overview');
 }
@@ -752,6 +786,7 @@ function switchTab(tab){
   else if(tab==='attendance') renderAttendanceTab();
   else if(tab==='parties') renderLineupsList();
   else if(tab==='officers'){ renderOfficersTab(); $('officers-badge').classList.add('hidden'); }
+  else if(tab==='activitylog') renderActivityLogTab();
 }
 document.querySelectorAll('.tab-btn').forEach(btn=>btn.addEventListener('click', ()=>switchTab(btn.dataset.tab)));
 
@@ -775,6 +810,18 @@ async function loadDiscordAttendanceLog(){
 async function loadProfileChangeLog(){
   const { data } = await sb.from('profile_changes').select('*').eq('guild_id', guildId).order('changed_at', { ascending:false }).limit(50);
   profileChangeLog = data || [];
+}
+async function loadActivityLog(){
+  const { data } = await sb.from('activity_log').select('*').eq('guild_id', guildId).order('created_at', { ascending:false }).limit(100);
+  activityLog = data || [];
+}
+// Logs a login or an admin-level action (deletes, officer management,
+// etc) so officers have a durable record of who did what and when.
+// Properly awaited by every caller — a bare, un-awaited call on the
+// Supabase query builder never actually dispatches its request.
+async function logActivity(action, details){
+  const username = currentOfficer ? currentOfficer.username : 'unknown';
+  await sb.from('activity_log').insert({ guild_id: guildId, officer_username: username, action, details: details || null });
 }
 
 /* ========================= Compute helpers ========================= */
@@ -1630,6 +1677,7 @@ function renderDiscordLogBody(group){
     const role = btn.dataset.deleteDiscordlog;
     if(!confirm(`Delete the ${role} Discord attendance log for ${group.date}? This can't be undone.`)) return;
     await sb.from('discord_attendance').delete().eq('guild_id', guildId).eq('date', group.date).eq('role', role);
+    await logActivity('Deleted Discord log', `${role} — ${group.date}`);
     expandedDiscordLogKey = null;
     await loadDiscordAttendanceLog();
     renderDiscordLogTab();
@@ -1728,6 +1776,7 @@ function renderSessionBody(id){
     if(!isAdmin()) return;
     if(!confirm("Delete this session? This can't be undone.")) return;
     await sb.from('sessions').delete().eq('id', id);
+    await logActivity('Deleted session', `${s.event_name||'WoE'} — ${s.date||''}${s.role?' ('+s.role+')':''}`);
     expandedSessionId=null;
     await loadSessions();
     renderStatStrip();
@@ -2118,6 +2167,7 @@ function renderFullRosterTab(){
       const ids = [...frSelected];
       const names = roster.filter(m => ids.includes(m.id)).map(m => m.name);
       await sb.from('roster_members').delete().in('id', ids);
+      await logActivity('Deleted roster members', names.join(', '));
       for(const name of names){ await clearMemberFromLineups(name); }
       frSelected.clear();
       await loadRoster();
@@ -2159,6 +2209,7 @@ function renderFullRosterTab(){
     const member = roster.find(m=>m.id===btn.dataset.frRemove);
     if(!confirm(`Delete ${member ? member.name : 'this member'} from the roster? This can't be undone. They'll also be cleared from any party they're currently placed in.`)) return;
     await sb.from('roster_members').delete().eq('id', btn.dataset.frRemove);
+    await logActivity('Deleted roster member', member ? member.name : btn.dataset.frRemove);
     if(member) await clearMemberFromLineups(member.name);
     await loadRoster(); renderStatStrip(); renderFullRosterTab();
     setStatus('Member deleted.', 'ok');
@@ -2312,7 +2363,9 @@ function renderLineupsList(){
   document.querySelectorAll('[data-delete-lineup]').forEach(el=>el.addEventListener('click', async ()=>{
     if(!isAdmin()) return;
     if(!confirm("Delete this lineup? This can't be undone.")) return;
+    const target = lineups.find(l=>l.id===el.dataset.deleteLineup);
     await sb.from('party_lineups').delete().eq('id', el.dataset.deleteLineup);
+    await logActivity('Deleted lineup', target ? `${target.name} — ${target.date||''}` : el.dataset.deleteLineup);
     await loadLineups(); renderLineupsList();
   }));
 }
@@ -2672,6 +2725,7 @@ function renderEditor(){
     if(!isAdmin()) return;
     if(!confirm("Delete this lineup? This can't be undone.")) return;
     await sb.from('party_lineups').delete().eq('id', currentLineup.id);
+    await logActivity('Deleted lineup', `${currentLineup.name} — ${currentLineup.date||''}`);
     await loadLineups();
     backToList();
   });
