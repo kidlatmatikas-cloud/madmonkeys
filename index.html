@@ -160,6 +160,8 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
   .lb-value{ font-size:16px; }
   .stat-card-grid{ grid-template-columns:repeat(2,1fr); }
   .stat-card .stat-value{ font-size:26px; }
+  .recent-row{ flex-direction:column; align-items:flex-start; gap:8px; }
+  .recent-row > div:last-child{ align-self:flex-start; }
 }
 .dash-panel-close:hover{ color:var(--magenta); background:rgba(229,83,92,.1); }
 .show-hidden-panels{ font-size:12.5px; color:var(--ink-soft); cursor:pointer; text-decoration:underline; text-underline-offset:2px; margin-bottom:14px; display:inline-block; }
@@ -227,6 +229,8 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
 .roster-sort{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
 .roster-sort span{ font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.05em; }
 .roster-sort .btn.active{ color:var(--cyan); border-color:var(--cyan); }
+.job-filter-details summary{ cursor:pointer; color:var(--cyan-dim); font-weight:700; font-size:13px; list-style:revert; }
+.job-filter-details summary:hover{ color:var(--cyan); }
 @media (max-width:800px){
   table.responsive thead{ display:none; }
   table.responsive, table.responsive tbody, table.responsive tr, table.responsive td{ display:block; width:100%; }
@@ -234,6 +238,7 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
   table.responsive td{ display:flex; justify-content:space-between; align-items:center; border-bottom:none; padding:5px 2px; gap:8px; }
   table.responsive td::before{ content:attr(data-label); font-size:10px; text-transform:uppercase; color:var(--ink-soft); font-weight:700; flex:0 0 auto; }
   table.responsive td.num{ text-align:right; }
+  .job-filter-chip{ padding:5px 11px; font-size:12.5px; gap:5px; }
 }
 
 </style>
@@ -2122,10 +2127,13 @@ function renderFullRosterTab(){
     </div>
     <div style="margin:14px 0 0;">
       <h3 style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px;">${headingParts.join(' — ')}</h3>
-      <div style="display:flex; flex-wrap:wrap; gap:7px;">
-        <button class="chip job-filter-chip ${fullRosterJobFilter.size===0?'active':''}" data-job-filter="">All Jobs</button>
-        ${JOB_OPTIONS.map(j=>`<button class="chip job-filter-chip ${fullRosterJobFilter.has(j)?'active':''}" data-job-filter="${escapeHtml(j)}">${jobIconSvg(j)}${escapeHtml(j)}</button>`).join('')}
-      </div>
+      <details class="job-filter-details" ${fullRosterJobFilter.size ? 'open' : ''}>
+        <summary>Filter by Job</summary>
+        <div style="display:flex; flex-wrap:wrap; gap:7px; margin-top:10px;">
+          <button class="chip job-filter-chip ${fullRosterJobFilter.size===0?'active':''}" data-job-filter="">All Jobs</button>
+          ${JOB_OPTIONS.map(j=>`<button class="chip job-filter-chip ${fullRosterJobFilter.has(j)?'active':''}" data-job-filter="${escapeHtml(j)}">${jobIconSvg(j)}${escapeHtml(j)}</button>`).join('')}
+        </div>
+      </details>
     </div>
     ${sorted.length ? `
     ${isAdmin() ? `
