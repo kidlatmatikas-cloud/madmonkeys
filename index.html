@@ -455,6 +455,7 @@ let draftEntries = [];
 let discordAttendees = []; // [{ discordName, matchedName, alreadyRecorded }]
 let discordRole = ''; // 'Elite' | 'Sub' — which scoreboard this Discord screenshot should cross-check against
 let discordAttendanceLog = []; // loaded from the discord_attendance table — the persistent, browsable log
+let profileChangeLog = []; // loaded from the profile_changes table
 let eliteCapacity = 40, subCapacity = 40; // war-slot caps, not tied to specific roster names
 let draftEventName = 'WoE';
 let draftDate = todayStr();
@@ -717,7 +718,7 @@ async function boot(){
     await sb.from('guild_settings').update({ name: newName }).eq('id', guildId);
     setStatus('Guild name updated.', 'ok');
   });
-  await Promise.all([loadRoster(), loadLineups(), loadSessions(), loadDiscordAttendanceLog()]);
+  await Promise.all([loadRoster(), loadLineups(), loadSessions(), loadDiscordAttendanceLog(), loadProfileChangeLog()]);
   renderStatStrip();
   switchTab('overview');
 }
@@ -770,6 +771,10 @@ async function loadSessions(){
 async function loadDiscordAttendanceLog(){
   const { data } = await sb.from('discord_attendance').select('*').eq('guild_id', guildId).order('date', { ascending:false });
   discordAttendanceLog = data || [];
+}
+async function loadProfileChangeLog(){
+  const { data } = await sb.from('profile_changes').select('*').eq('guild_id', guildId).order('changed_at', { ascending:false }).limit(50);
+  profileChangeLog = data || [];
 }
 
 /* ========================= Compute helpers ========================= */
@@ -2045,6 +2050,21 @@ function renderFullRosterTab(){
         </tr>
       `).join('')}</tbody>
     </table>` : `<div class="empty-state">${fullRosterJobFilter.size ? `No members with ${[...fullRosterJobFilter].map(escapeHtml).join(', ')}.` : 'No members added yet.'}</div>`}
+    <details style="margin-top:26px; padding-top:18px; border-top:1px solid var(--line-strong);">
+      <summary style="cursor:pointer; color:var(--cyan-dim); font-weight:700; font-size:14px;">Recent Name &amp; Job Changes (${profileChangeLog.length})</summary>
+      <p class="section-hint" style="margin-top:8px;">Self-service updates guildmates made from the share link.</p>
+      <div style="margin-top:10px;">
+        ${profileChangeLog.length ? profileChangeLog.map(c=>{
+          const renamed = c.new_name && c.new_name !== c.old_name;
+          const rejobbed = c.new_job && c.new_job !== c.old_job;
+          return `<div style="padding:9px 0; border-bottom:1px solid var(--line); font-size:13px;">
+            ${renamed ? `<strong>${escapeHtml(c.old_name)}</strong> renamed to <strong style="color:var(--cyan);">${escapeHtml(c.new_name)}</strong>` : `<strong>${escapeHtml(c.old_name)}</strong>`}
+            ${rejobbed ? ` — job changed to <strong style="color:var(--gold);">${escapeHtml(c.new_job)}</strong>` : ''}
+            <span style="color:var(--ink-faint); margin-left:8px;">${new Date(c.changed_at).toLocaleString()}</span>
+          </div>`;
+        }).join('') : '<div style="font-size:13px;color:var(--ink-soft);">No changes logged yet.</div>'}
+      </div>
+    </details>
   `;
   populateJobSelect($('fr-job'));
   sorted.forEach(m=>{
