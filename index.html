@@ -2278,6 +2278,7 @@ function renderFullRosterTab(){
     if(!name) return;
     const { error } = await sb.from('roster_members').insert({guild_id:guildId, mmid, name, job});
     if(error){ setStatus("Couldn't add — name may already exist.", 'error'); return; }
+    await logActivity('Added roster member', name);
     $('fr-mmid').value=''; $('fr-name').value='';
     await loadRoster(); renderStatStrip(); renderFullRosterTab();
     setStatus('Member added.', 'ok');
@@ -2296,6 +2297,7 @@ function renderFullRosterTab(){
     if(rows.length){
       const { error } = await sb.from('roster_members').insert(rows);
       if(error) setStatus("Some rows couldn't be added (duplicate names?).", 'error');
+      await logActivity('Added roster members', rows.map(r=>r.name).join(', '));
       await loadRoster(); renderStatStrip(); renderFullRosterTab();
       setStatus('Added members.', 'ok');
     }
