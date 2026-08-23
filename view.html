@@ -49,6 +49,7 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
 .hud-panel{ position:relative; background:var(--bg-panel); border:1px solid var(--line-strong); border-radius:12px; padding:30px 32px; box-shadow:0 4px 20px var(--shadow); margin-top:20px; }
 .corner{ display:none; }
 .section-title{ font-family:'Inter',sans-serif; font-size:19px; font-weight:700; letter-spacing:-.01em; margin:0 0 8px; }
+.event-title{ font-family:'Inter',sans-serif; font-size:30px; font-weight:800; letter-spacing:-.01em; margin:0 0 10px; color:var(--cyan); }
 .section-hint{ font-size:15.5px; color:var(--ink-soft); margin:0 0 18px; max-width:70ch; line-height:1.6; }
 .status-line{ font-size:13.5px; margin-top:10px; color:var(--ink-soft); min-height:18px; }
 .status-line.error{ color:var(--magenta); }
@@ -754,11 +755,11 @@ async function render(){
     <div class="hud-panel">
       <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
       <span class="corner corner-bl"></span><span class="corner corner-br"></span>
-      <h2 class="section-title">${escapeHtml(lineup.name)}</h2>
+      <h2 class="event-title">${escapeHtml(lineup.name)}</h2>
       <div class="meta-bar">
         ${lineup.date ? `<div class="meta-item"><div class="meta-label">Date</div><div class="meta-value plain">${escapeHtml(lineup.date)}</div></div>` : ''}
         ${lineup.map_name ? `<div class="meta-item"><div class="meta-label">${lineup.event_type==='Guild Overrun'?'Guild Category':'Map'}</div><div class="meta-value">${escapeHtml(lineup.map_name)}</div></div>` : ''}
-        ${lineup.opposing_guild ? `<div class="meta-item"><div class="meta-label">Opponent</div><div class="meta-value">${escapeHtml(lineup.opposing_guild)}</div></div>` : ''}
+        ${lineup.opposing_guild && lineup.event_type!=='Guild Overrun' ? `<div class="meta-item"><div class="meta-label">Opponent</div><div class="meta-value">${escapeHtml(lineup.opposing_guild)}</div></div>` : ''}
       </div>
       ${lineup.event_type==='Guild Overrun' && (lineup.opponents||[]).some(o=>o&&o.name) ? `
       <div style="margin:-8px 0 20px;">
