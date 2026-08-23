@@ -421,12 +421,26 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ========================= Job data ========================= */
 const JOB_OPTIONS = ['High Priest','High Wizard','Paladin','Lord Knight','Mastersmith','Summoner','Sniper','Assasin Cross','Stalker','Biochemist','Rebellion','Gypsy','Minstrel','Professor','Asura'];
-// Event types for Party List — each may define its own set of maps
-// below. Add more event types (and their map lists) here as needed.
 const EVENT_TYPES = ['Guild League', 'Guild Overrun'];
-const EVENT_MAPS = {
-  'Guild League': ['Stellar Clash', 'Vale of Clash', 'Vigrid of Avenge'],
+const EVENT_MAP_CONFIG = {
+  'Guild League': { label: 'Map', options: ['Stellar Clash', 'Vale of Clash', 'Vigrid of Avenge'] },
+  'Guild Overrun': { label: 'Guild Category', options: ['Pinnacle Group'] },
 };
+// Auto-generates the lineup's display name from its event fields, since
+// there's no manual name field — keeps every other feature that reads
+// lineup.name (Discord posts, Party Report, Activity Log, share page)
+// working without extra changes.
+function computeLineupName(l){
+  if(!l.event_type) return l.name || 'New Lineup';
+  const datePart = l.date ? ` — ${l.date}` : '';
+  if(l.event_type === 'Guild League'){
+    return `Guild League${l.opposing_guild ? ' vs '+l.opposing_guild : ''}${datePart}`;
+  }
+  if(l.event_type === 'Guild Overrun'){
+    return `Guild Overrun${datePart}`;
+  }
+  return `${l.event_type}${datePart}`;
+}
 const JOB_ICONS = {
   'High Priest':'<path d="M10 2h4v7h7v4h-7v9h-4v-9H3V9h7V2z"/>',
   'High Wizard':'<circle cx="12" cy="5" r="3"/><path d="M10.8 8.5h2.4v13.5h-2.4z"/><path d="M19 2.5l0.9 2.2 2.2 0.9-2.2 0.9-0.9 2.2-0.9-2.2-2.2-0.9 2.2-0.9z"/>',
@@ -2436,7 +2450,7 @@ function renderLineupsList(){
           ${l.event_type ? `<span class="chip" style="margin-right:8px; padding:2px 9px; font-size:11px;">${escapeHtml(l.event_type)}</span>` : ''}
           <a data-open-lineup="${l.id}">${escapeHtml(l.name)}</a> — ${l.date||''}
         </div>
-        <div class="lineup-meta">${[l.map_name, l.opposing_guild?('vs '+l.opposing_guild):null].filter(Boolean).join(' · ')}</div>
+        <div class="lineup-meta">${[l.map_name, l.opposing_guild?('vs '+l.opposing_guild):null, (l.event_type==='Guild Overrun' && (l.opponents||[]).filter(o=>o&&o.name).length)?`${(l.opponents||[]).filter(o=>o&&o.name).length}/7 opponents set`:null].filter(Boolean).join(' · ')}</div>
       </div>
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <span class="lineup-meta">${placedCount(l.teams)} placed</span>
@@ -2467,12 +2481,17 @@ function renderLineupsList(){
 async function duplicateLineup(id){
   const original = lineups.find(l=>l.id===id);
   if(!original) return;
+  const newDate = todayStr();
+  const newName = computeLineupName({ event_type: original.event_type, date: newDate, opposing_guild: original.opposing_guild });
   const { data, error } = await sb.from('party_lineups').insert({
     guild_id: guildId,
-    name: `${original.name} (Copy)`,
-    date: todayStr(),
+    name: newName,
+    date: newDate,
+    event_type: original.event_type,
     map_name: original.map_name,
     opposing_guild: original.opposing_guild,
+    opponents: JSON.parse(JSON.stringify(original.opponents||[])),
+    notes: original.notes,
     teams: JSON.parse(JSON.stringify(original.teams)),
   }).select('id').single();
   if(error){ setStatus("Couldn't duplicate lineup.", 'error'); return; }
@@ -2762,8 +2781,7 @@ function renderEditor(){
       <div style="flex:1 1 320px;">
         <button class="btn ghost small" id="back-btn" style="margin-bottom:14px;">&larr; All Lineups</button>
         <div class="field-row">
-          <div style="flex:2 1 220px;"><label>Lineup Name</label><input type="text" id="f-name" value="${escapeHtml(l.name)}"></div>
-          <div style="flex:1 1 160px;"><label>Event Type</label>
+          <div style="flex:1 1 200px;"><label>Event Type</label>
             <select id="f-event-type">
               <option value="">\u2014 Select \u2014</option>
               ${EVENT_TYPES.map(t=>`<option value="${escapeHtml(t)}" ${l.event_type===t?'selected':''}>${escapeHtml(t)}</option>`).join('')}
@@ -2772,16 +2790,31 @@ function renderEditor(){
           <div style="flex:1 1 140px;"><label>Date</label><input type="date" id="f-date" value="${l.date||''}"></div>
         </div>
         <div class="field-row">
-          <div><label>Map</label>
-            ${EVENT_MAPS[l.event_type] ? `
+          <div><label>${EVENT_MAP_CONFIG[l.event_type] ? EVENT_MAP_CONFIG[l.event_type].label : 'Map'}</label>
+            ${EVENT_MAP_CONFIG[l.event_type] ? `
               <select id="f-map">
-                <option value="">\u2014 Select map \u2014</option>
-                ${EVENT_MAPS[l.event_type].map(map=>`<option value="${escapeHtml(map)}" ${l.map_name===map?'selected':''}>${escapeHtml(map)}</option>`).join('')}
+                <option value="">\u2014 Select \u2014</option>
+                ${EVENT_MAP_CONFIG[l.event_type].options.map(opt=>`<option value="${escapeHtml(opt)}" ${l.map_name===opt?'selected':''}>${escapeHtml(opt)}</option>`).join('')}
               </select>
             ` : `<input type="text" id="f-map" placeholder="e.g. Prontera Castle" value="${escapeHtml(l.map_name||'')}">`}
           </div>
-          <div><label>Opposing Guild</label><input type="text" id="f-opp" placeholder="Enemy guild name" value="${escapeHtml(l.opposing_guild||'')}"></div>
+          ${l.event_type === 'Guild Overrun' ? '' : `<div><label>Opposing Guild</label><input type="text" id="f-opp" placeholder="Enemy guild name" value="${escapeHtml(l.opposing_guild||'')}"></div>`}
         </div>
+        ${l.event_type === 'Guild Overrun' ? `
+        <div style="margin-top:4px;">
+          <label>Opponents (7)</label>
+          <div id="overrun-opponents" style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">
+            ${Array.from({length:7}, (_,i)=>{
+              const o = (l.opponents && l.opponents[i]) || {name:'', server:''};
+              return `<div style="display:flex; gap:8px; align-items:center;">
+                <span style="flex:0 0 18px; color:var(--ink-faint); font-size:12px;">${i+1}</span>
+                <input type="text" data-opponent-idx="${i}" data-opponent-field="name" placeholder="Guild name" value="${escapeHtml(o.name||'')}" style="flex:2;">
+                <input type="text" data-opponent-idx="${i}" data-opponent-field="server" placeholder="Server" value="${escapeHtml(o.server||'')}" style="flex:1;">
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+        ` : ''}
         <div class="field-row">
           <div style="flex:1 1 100%;"><label>Guild Notes</label><textarea id="f-notes" rows="2" placeholder="Any notes for this event…">${escapeHtml(l.notes||'')}</textarea></div>
         </div>
@@ -2810,11 +2843,30 @@ function renderEditor(){
 
   $('back-btn').addEventListener('click', backToList);
   wireAbsenceButtons();
-  $('f-name').addEventListener('input', e=>{ currentLineup.name = e.target.value; scheduleSave(); });
-  $('f-event-type').addEventListener('change', e=>{ currentLineup.event_type = e.target.value || null; scheduleSave(); renderEditor(); });
-  $('f-date').addEventListener('change', e=>{ currentLineup.date = e.target.value; scheduleSave(); });
+  $('f-event-type').addEventListener('change', e=>{
+    currentLineup.event_type = e.target.value || null;
+    currentLineup.name = computeLineupName(currentLineup);
+    scheduleSave(); renderEditor();
+  });
+  $('f-date').addEventListener('change', e=>{
+    currentLineup.date = e.target.value;
+    currentLineup.name = computeLineupName(currentLineup);
+    scheduleSave();
+  });
   $('f-map').addEventListener('change', e=>{ currentLineup.map_name = e.target.value; scheduleSave(); });
-  $('f-opp').addEventListener('input', e=>{ currentLineup.opposing_guild = e.target.value; scheduleSave(); });
+  const oppInput = $('f-opp');
+  if(oppInput) oppInput.addEventListener('input', e=>{
+    currentLineup.opposing_guild = e.target.value;
+    currentLineup.name = computeLineupName(currentLineup);
+    scheduleSave();
+  });
+  document.querySelectorAll('[data-opponent-idx]').forEach(input=>input.addEventListener('input', e=>{
+    const idx = +e.target.dataset.opponentIdx, field = e.target.dataset.opponentField;
+    const opponents = Array.from({length:7}, (_,i)=>(currentLineup.opponents && currentLineup.opponents[i]) || {name:'',server:''});
+    opponents[idx] = { ...opponents[idx], [field]: e.target.value };
+    currentLineup.opponents = opponents;
+    scheduleSave();
+  }));
   $('f-notes').addEventListener('input', e=>{ currentLineup.notes = e.target.value; scheduleSave(); });
   $('copy-share-btn').addEventListener('click', ()=>{
     const url = `${location.origin}${location.pathname.replace('index.html','')}view.html?slug=${currentLineup.share_slug}`;
