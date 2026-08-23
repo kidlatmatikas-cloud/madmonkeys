@@ -757,9 +757,17 @@ async function render(){
       <h2 class="section-title">${escapeHtml(lineup.name)}</h2>
       <div class="meta-bar">
         ${lineup.date ? `<div class="meta-item"><div class="meta-label">Date</div><div class="meta-value plain">${escapeHtml(lineup.date)}</div></div>` : ''}
-        ${lineup.map_name ? `<div class="meta-item"><div class="meta-label">Map</div><div class="meta-value">${escapeHtml(lineup.map_name)}</div></div>` : ''}
+        ${lineup.map_name ? `<div class="meta-item"><div class="meta-label">${lineup.event_type==='Guild Overrun'?'Guild Category':'Map'}</div><div class="meta-value">${escapeHtml(lineup.map_name)}</div></div>` : ''}
         ${lineup.opposing_guild ? `<div class="meta-item"><div class="meta-label">Opponent</div><div class="meta-value">${escapeHtml(lineup.opposing_guild)}</div></div>` : ''}
       </div>
+      ${lineup.event_type==='Guild Overrun' && (lineup.opponents||[]).some(o=>o&&o.name) ? `
+      <div style="margin:-8px 0 20px;">
+        <div class="meta-label" style="margin-bottom:8px;">Opponents</div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px;">
+          ${(lineup.opponents||[]).filter(o=>o&&o.name).map(o=>`<span class="chip">${escapeHtml(o.name)}${o.server?' <span style="color:var(--ink-faint);">('+escapeHtml(o.server)+')</span>':''}</span>`).join('')}
+        </div>
+      </div>` : ''}
+      ${lineup.notes ? `<div style="margin:-8px 0 20px; font-size:13.5px; color:var(--ink-soft);"><div class="meta-label" style="margin-bottom:6px;">Notes</div>${escapeHtml(lineup.notes)}</div>` : ''}
       ${lineup.share_expires_at ? `<div style="font-size:11.5px; color:var(--ink-faint); margin:-14px 0 20px;">This link expires ${new Date(lineup.share_expires_at).toLocaleString()}</div>` : ''}
       ${lineup.teams.map(team => `
         <div class="team-block">
