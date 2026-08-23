@@ -757,9 +757,9 @@ async function render(){
       <span class="corner corner-bl"></span><span class="corner corner-br"></span>
       <h2 class="event-title">${escapeHtml(lineup.name)}</h2>
       <div class="meta-bar">
-        ${lineup.date ? `<div class="meta-item"><div class="meta-label">Date</div><div class="meta-value plain">${escapeHtml(lineup.date)}</div></div>` : ''}
+        ${lineup.date && !lineup.event_type ? `<div class="meta-item"><div class="meta-label">Date</div><div class="meta-value plain">${escapeHtml(lineup.date)}</div></div>` : ''}
         ${lineup.map_name ? `<div class="meta-item"><div class="meta-label">${lineup.event_type==='Guild Overrun'?'Guild Category':'Map'}</div><div class="meta-value">${escapeHtml(lineup.map_name)}</div></div>` : ''}
-        ${lineup.opposing_guild && lineup.event_type!=='Guild Overrun' ? `<div class="meta-item"><div class="meta-label">Opponent</div><div class="meta-value">${escapeHtml(lineup.opposing_guild)}</div></div>` : ''}
+        ${lineup.opposing_guild && !lineup.event_type ? `<div class="meta-item"><div class="meta-label">Opponent</div><div class="meta-value">${escapeHtml(lineup.opposing_guild)}</div></div>` : ''}
       </div>
       ${lineup.event_type==='Guild Overrun' && (lineup.opponents||[]).some(o=>o&&o.name) ? `
       <div style="margin:-8px 0 20px;">
