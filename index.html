@@ -129,6 +129,10 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
 .lineup-title{ font-weight:700; font-size:15px; }
 .lineup-title a{ color:var(--ink); text-decoration:none; cursor:pointer; }
 .lineup-title a:hover{ color:var(--cyan); }
+.lineup-title-link{ display:inline-flex; align-items:center; gap:10px; flex-wrap:wrap; text-decoration:none; cursor:pointer; }
+.lineup-title-link:hover .lineup-title-text{ color:var(--cyan); }
+.event-type-badge{ font-size:13px; font-weight:700; padding:5px 13px; border-radius:20px; background:rgba(91,141,239,.16); border:1px solid var(--cyan); color:var(--cyan); }
+.lineup-title-text{ font-weight:700; font-size:15px; color:var(--ink); }
 .lineup-meta{ font-size:12.5px; color:var(--ink-soft); font-family:'Inter',sans-serif; margin-top:2px; }
 .tabs{ display:flex; gap:6px; margin:20px 0 4px; flex-wrap:wrap; }
 .tab-btn{ position:relative; font-weight:600; font-size:14px; letter-spacing:0; background:var(--bg-panel-2); border:1px solid var(--line); border-radius:7px; padding:9px 18px; cursor:pointer; color:var(--ink-soft); transition:background .12s, color .12s; }
@@ -2447,8 +2451,10 @@ function renderLineupsList(){
     <div class="lineup-card">
       <div>
         <div class="lineup-title">
-          ${l.event_type ? `<span class="chip" style="margin-right:8px; padding:2px 9px; font-size:11px;">${escapeHtml(l.event_type)}</span>` : ''}
-          <a data-open-lineup="${l.id}">${escapeHtml(l.name)}</a> — ${l.date||''}
+          <a class="lineup-title-link" data-open-lineup="${l.id}">
+            ${l.event_type ? `<span class="event-type-badge">${escapeHtml(l.event_type)}</span>` : ''}
+            <span class="lineup-title-text">${escapeHtml(l.name)}${l.event_type ? '' : ' — '+(l.date||'')}</span>
+          </a>
         </div>
         <div class="lineup-meta">${[l.map_name, l.opposing_guild?('vs '+l.opposing_guild):null, (l.event_type==='Guild Overrun' && (l.opponents||[]).filter(o=>o&&o.name).length)?`${(l.opponents||[]).filter(o=>o&&o.name).length}/7 opponents set`:null].filter(Boolean).join(' · ')}</div>
       </div>
