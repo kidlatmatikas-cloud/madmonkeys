@@ -132,6 +132,7 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
 .lineup-title-link{ display:inline-flex; align-items:center; gap:10px; flex-wrap:wrap; text-decoration:none; cursor:pointer; }
 .lineup-title-link:hover .lineup-title-text{ color:var(--cyan); }
 .event-type-badge{ font-size:13px; font-weight:700; padding:5px 13px; border-radius:20px; background:rgba(91,141,239,.16); border:1px solid var(--cyan); color:var(--cyan); }
+.event-type-badge.overrun{ background:rgba(220,154,61,.16); border-color:var(--gold); color:var(--gold); }
 .lineup-title-text{ font-weight:700; font-size:15px; color:var(--ink); }
 .lineup-meta{ font-size:12.5px; color:var(--ink-soft); font-family:'Inter',sans-serif; margin-top:2px; }
 .tabs{ display:flex; gap:6px; margin:20px 0 4px; flex-wrap:wrap; }
@@ -2452,8 +2453,8 @@ function renderLineupsList(){
       <div>
         <div class="lineup-title">
           <a class="lineup-title-link" data-open-lineup="${l.id}">
-            ${l.event_type ? `<span class="event-type-badge">${escapeHtml(l.event_type)}</span>` : ''}
-            <span class="lineup-title-text">${escapeHtml(l.name)}${l.event_type ? '' : ' — '+(l.date||'')}</span>
+            ${l.event_type ? `<span class="event-type-badge${l.event_type==='Guild Overrun'?' overrun':''}">${escapeHtml(l.event_type)}</span>` : ''}
+            <span class="lineup-title-text">${escapeHtml(l.name)}${(l.date && l.name && l.name.includes(l.date)) ? '' : ' — '+(l.date||'')}</span>
           </a>
         </div>
         <div class="lineup-meta">${[l.map_name, l.opposing_guild?('vs '+l.opposing_guild):null, (l.event_type==='Guild Overrun' && (l.opponents||[]).filter(o=>o&&o.name).length)?`${(l.opponents||[]).filter(o=>o&&o.name).length}/7 opponents set`:null].filter(Boolean).join(' · ')}</div>
