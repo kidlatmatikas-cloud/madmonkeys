@@ -421,6 +421,12 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ========================= Job data ========================= */
 const JOB_OPTIONS = ['High Priest','High Wizard','Paladin','Lord Knight','Mastersmith','Summoner','Sniper','Assasin Cross','Stalker','Biochemist','Rebellion','Gypsy','Minstrel','Professor','Asura'];
+// Event types for Party List — each may define its own set of maps
+// below. Add more event types (and their map lists) here as needed.
+const EVENT_TYPES = ['Guild League', 'Guild Overrun'];
+const EVENT_MAPS = {
+  'Guild League': ['Stellar Clash', 'Vale of Clash', 'Vigrid of Avenge'],
+};
 const JOB_ICONS = {
   'High Priest':'<path d="M10 2h4v7h7v4h-7v9h-4v-9H3V9h7V2z"/>',
   'High Wizard':'<circle cx="12" cy="5" r="3"/><path d="M10.8 8.5h2.4v13.5h-2.4z"/><path d="M19 2.5l0.9 2.2 2.2 0.9-2.2 0.9-0.9 2.2-0.9-2.2-2.2-0.9 2.2-0.9z"/>',
@@ -2426,7 +2432,10 @@ function renderLineupsList(){
   $('lineups-list').innerHTML = lineups.length ? lineups.map(l=>`
     <div class="lineup-card">
       <div>
-        <div class="lineup-title"><a data-open-lineup="${l.id}">${escapeHtml(l.name)}</a> — ${l.date||''}</div>
+        <div class="lineup-title">
+          ${l.event_type ? `<span class="chip" style="margin-right:8px; padding:2px 9px; font-size:11px;">${escapeHtml(l.event_type)}</span>` : ''}
+          <a data-open-lineup="${l.id}">${escapeHtml(l.name)}</a> — ${l.date||''}
+        </div>
         <div class="lineup-meta">${[l.map_name, l.opposing_guild?('vs '+l.opposing_guild):null].filter(Boolean).join(' · ')}</div>
       </div>
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
@@ -2754,11 +2763,27 @@ function renderEditor(){
         <button class="btn ghost small" id="back-btn" style="margin-bottom:14px;">&larr; All Lineups</button>
         <div class="field-row">
           <div style="flex:2 1 220px;"><label>Lineup Name</label><input type="text" id="f-name" value="${escapeHtml(l.name)}"></div>
+          <div style="flex:1 1 160px;"><label>Event Type</label>
+            <select id="f-event-type">
+              <option value="">\u2014 Select \u2014</option>
+              ${EVENT_TYPES.map(t=>`<option value="${escapeHtml(t)}" ${l.event_type===t?'selected':''}>${escapeHtml(t)}</option>`).join('')}
+            </select>
+          </div>
           <div style="flex:1 1 140px;"><label>Date</label><input type="date" id="f-date" value="${l.date||''}"></div>
         </div>
         <div class="field-row">
-          <div><label>Map Name</label><input type="text" id="f-map" placeholder="e.g. Prontera Castle" value="${escapeHtml(l.map_name||'')}"></div>
+          <div><label>Map</label>
+            ${EVENT_MAPS[l.event_type] ? `
+              <select id="f-map">
+                <option value="">\u2014 Select map \u2014</option>
+                ${EVENT_MAPS[l.event_type].map(map=>`<option value="${escapeHtml(map)}" ${l.map_name===map?'selected':''}>${escapeHtml(map)}</option>`).join('')}
+              </select>
+            ` : `<input type="text" id="f-map" placeholder="e.g. Prontera Castle" value="${escapeHtml(l.map_name||'')}">`}
+          </div>
           <div><label>Opposing Guild</label><input type="text" id="f-opp" placeholder="Enemy guild name" value="${escapeHtml(l.opposing_guild||'')}"></div>
+        </div>
+        <div class="field-row">
+          <div style="flex:1 1 100%;"><label>Guild Notes</label><textarea id="f-notes" rows="2" placeholder="Any notes for this event…">${escapeHtml(l.notes||'')}</textarea></div>
         </div>
       </div>
       <div style="text-align:right;">
@@ -2786,9 +2811,11 @@ function renderEditor(){
   $('back-btn').addEventListener('click', backToList);
   wireAbsenceButtons();
   $('f-name').addEventListener('input', e=>{ currentLineup.name = e.target.value; scheduleSave(); });
+  $('f-event-type').addEventListener('change', e=>{ currentLineup.event_type = e.target.value || null; scheduleSave(); renderEditor(); });
   $('f-date').addEventListener('change', e=>{ currentLineup.date = e.target.value; scheduleSave(); });
-  $('f-map').addEventListener('input', e=>{ currentLineup.map_name = e.target.value; scheduleSave(); });
+  $('f-map').addEventListener('change', e=>{ currentLineup.map_name = e.target.value; scheduleSave(); });
   $('f-opp').addEventListener('input', e=>{ currentLineup.opposing_guild = e.target.value; scheduleSave(); });
+  $('f-notes').addEventListener('input', e=>{ currentLineup.notes = e.target.value; scheduleSave(); });
   $('copy-share-btn').addEventListener('click', ()=>{
     const url = `${location.origin}${location.pathname.replace('index.html','')}view.html?slug=${currentLineup.share_slug}`;
     navigator.clipboard.writeText(url);
