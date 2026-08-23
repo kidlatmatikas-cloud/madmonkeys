@@ -231,6 +231,10 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
 .roster-sort .btn.active{ color:var(--cyan); border-color:var(--cyan); }
 .job-filter-details summary{ cursor:pointer; color:var(--cyan-dim); font-weight:700; font-size:13px; list-style:revert; }
 .job-filter-details summary:hover{ color:var(--cyan); }
+.is-inactive-member{ opacity:.55; }
+.is-inactive-member input, .is-inactive-member select{ color:var(--ink-faint); }
+.left-guild-badge{ color:var(--magenta); border-color:var(--magenta); cursor:pointer; font-size:11.5px; padding:5px 10px; white-space:nowrap; }
+.left-guild-badge:hover{ background:rgba(229,83,92,.12); }
 @media (max-width:800px){
   table.responsive thead{ display:none; }
   table.responsive, table.responsive tbody, table.responsive tr, table.responsive td{ display:block; width:100%; }
@@ -851,7 +855,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>btn.addEventListener('click',
 
 /* ========================= Data loading ========================= */
 async function loadRoster(){
-  const { data } = await sb.from('roster_members').select('id,mmid,name,job').eq('guild_id', guildId).order('name');
+  const { data } = await sb.from('roster_members').select('id,mmid,name,job,status').eq('guild_id', guildId).order('name');
   roster = data || [];
 }
 async function loadLineups(){
@@ -2152,12 +2156,17 @@ function renderFullRosterTab(){
         ${isAdmin() ? '<th></th>' : ''}
       </tr></thead>
       <tbody>${sorted.map(m=>`
-        <tr class="${frSelected.has(m.id)?'is-selected':''}">
+        <tr class="${frSelected.has(m.id)?'is-selected':''} ${m.status==='inactive'?'is-inactive-member':''}">
           ${isAdmin() ? `<td data-label=""><input type="checkbox" class="fr-check" data-fr-check="${m.id}" ${frSelected.has(m.id)?'checked':''}></td>` : ''}
           <td data-label="UID"><input type="text" class="roster-mmid-input" data-fr-field="mmid" data-fr-id="${m.id}" value="${escapeHtml(m.mmid||'')}" placeholder="UID"></td>
           <td data-label="Name"><input type="text" class="roster-name-input" data-fr-field="name" data-fr-id="${m.id}" value="${escapeHtml(m.name)}" placeholder="Name"></td>
           <td data-label="Job"><div class="job-cell">${jobIconSvg(m.job)}<select class="roster-job-select" data-fr-field="job" data-fr-id="${m.id}"></select></div></td>
-          ${isAdmin() ? `<td data-label=""><button class="row-del" data-fr-remove="${m.id}" title="Delete this member">✕</button></td>` : ''}
+          ${isAdmin() ? `<td data-label="" style="gap:6px;">
+            ${m.status==='inactive'
+              ? `<button class="chip left-guild-badge" data-fr-toggle-status="${m.id}" data-new-status="active" title="Reactivate this member">Left Guild \u2014 Reactivate</button>`
+              : `<button class="btn ghost small" data-fr-toggle-status="${m.id}" data-new-status="inactive" title="Mark as no longer in the guild">Mark Left</button>`}
+            <button class="row-del" data-fr-remove="${m.id}" title="Delete this member">✕</button>
+          </td>` : ''}
         </tr>
       `).join('')}</tbody>
     </table>` : `<div class="empty-state">${fullRosterJobFilter.size ? `No members with ${[...fullRosterJobFilter].map(escapeHtml).join(', ')}.` : 'No members added yet.'}</div>`}
@@ -2275,6 +2284,20 @@ function renderFullRosterTab(){
     if(member) await clearMemberFromLineups(member.name);
     await loadRoster(); renderStatStrip(); renderFullRosterTab();
     setStatus('Member deleted.', 'ok');
+  }));
+  document.querySelectorAll('[data-fr-toggle-status]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    if(!isAdmin()) return;
+    const id = btn.dataset.frToggleStatus, newStatus = btn.dataset.newStatus;
+    const member = roster.find(m=>m.id===id);
+    if(!member) return;
+    if(newStatus==='inactive'){
+      if(!confirm(`Mark ${member.name} as no longer in the guild? They'll be kept for history, but removed from party selection and cleared from any party they're currently placed in.`)) return;
+    }
+    await sb.from('roster_members').update({ status: newStatus }).eq('id', id);
+    await logActivity(newStatus==='inactive' ? 'Marked member as left the guild' : 'Reactivated member', member.name);
+    if(newStatus==='inactive') await clearMemberFromLineups(member.name);
+    await loadRoster(); renderStatStrip(); renderFullRosterTab();
+    setStatus(newStatus==='inactive' ? `${member.name} marked as left the guild.` : `${member.name} reactivated.`, 'ok');
   }));
   document.querySelectorAll('[data-fr-field]').forEach(el=>{
     el.addEventListener('change', async ()=>{
@@ -2721,7 +2744,7 @@ function renderEditor(){
   const l = currentLineup;
   const counts = countByName();
   const assignedNames = new Set(Object.keys(counts));
-  const unassigned = roster.filter(m=>!assignedNames.has(m.name)).map(m=>m.name).sort();
+  const unassigned = roster.filter(m=>!assignedNames.has(m.name) && m.status!=='inactive').map(m=>m.name).sort();
   const crossBooked = findCrossLineupBookings();
   const bookedHere = [...crossBooked].filter(n=>assignedNames.has(n));
 
@@ -2920,7 +2943,7 @@ function renderPickerOptions(){
   const search = $('assign-search').value.trim().toLowerCase();
   const counts = countByName();
 
-  let list = roster.slice();
+  let list = roster.filter(m=>m.status!=='inactive');
   if(jobFilter) list = list.filter(m=>(m.job||'')===jobFilter);
   if(search) list = list.filter(m=>m.name.toLowerCase().includes(search));
   const absentNames = new Set(currentLineupAbsences.filter(a=>a.absent_date===(currentLineup.date||'')).map(a=>a.member_name));
