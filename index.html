@@ -2647,6 +2647,43 @@ function partyReportHeader(label, key){
   const arrow = active ? (partyReportSort.dir==='desc' ? ' \u25BC' : ' \u25B2') : '';
   return `<th data-sort-key="${key}" style="cursor:pointer;user-select:none;${active?'color:var(--gold);':''}">${label}${arrow}</th>`;
 }
+// Per-team job counts for whoever's currently assigned — generic by
+// team name, so it works correctly no matter what the teams are called
+// (Elite/Sub by default, but officers can rename them).
+function computeJobSummary(l){
+  return l.teams.map(team=>{
+    const counts = {};
+    let total = 0;
+    team.parties.forEach(p=>p.slots.forEach(s=>{
+      if(s.name){
+        const job = (roster.find(m=>m.name===s.name)||{}).job || s.job || 'No Job Set';
+        counts[job] = (counts[job]||0)+1;
+        total++;
+      }
+    }));
+    const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+    return { teamName: team.name, sorted, total };
+  });
+}
+function tplJobSummary(l){
+  const summary = computeJobSummary(l);
+  const hasAny = summary.some(t=>t.total>0);
+  return `<details class="hud-panel" style="margin-bottom:20px;">
+    <summary style="cursor:pointer;font-weight:700;color:var(--cyan-dim);">Job Summary</summary>
+    ${!hasAny ? `<p class="section-hint" style="margin-top:10px;">No one is assigned yet.</p>` : `
+    <div style="display:flex; gap:24px; flex-wrap:wrap; margin-top:12px;">
+      ${summary.map(team=>`
+        <div style="flex:1 1 220px; min-width:200px;">
+          <h4 style="margin:0 0 8px;font-size:13px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;">${escapeHtml(team.teamName)} (${team.total})</h4>
+          ${team.sorted.length ? team.sorted.map(([job,count])=>`
+            <div class="lb-row">${jobIconSvg(job)}<span class="lb-name">${escapeHtml(job)}</span><span class="lb-value">${count}</span></div>
+          `).join('') : '<div style="font-size:13px;color:var(--ink-soft);">No one assigned.</div>'}
+        </div>
+      `).join('')}
+    </div>
+    `}
+  </details>`;
+}
 function tplPartyReport(l){
   const day = getSessionDays().find(d=>d.date===l.date);
   if(!day){
@@ -2844,6 +2881,7 @@ function renderEditor(){
     ${tplVisits()}
     ${tplAbsences()}
     ${tplPartyReport(l)}
+    ${tplJobSummary(l)}
     ${l.teams.map((team,ti)=>tplTeam(team,ti,crossBooked)).join('')}
     <button class="btn gold small" id="add-team-btn" style="margin-bottom:20px;">+ Add Team</button>
     <h3 class="section-title" style="font-size:14px;">Unassigned (${unassigned.length})</h3>
