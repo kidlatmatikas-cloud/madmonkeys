@@ -192,7 +192,7 @@ let statsGuildId = null;
 async function loadStatsData(guildId){
   statsGuildId = guildId;
   const [{ data: members }, { data: sess }] = await Promise.all([
-    sb.from('roster_members').select('id,mmid,name,job').eq('guild_id', guildId).order('name'),
+    sb.from('roster_members').select('id,mmid,name,job,party_role').eq('guild_id', guildId).order('name'),
     sb.from('sessions').select('*, session_entries(*)').eq('guild_id', guildId)
   ]);
   guildRoster = members || [];
@@ -779,9 +779,10 @@ async function render(){
                 <div class="party-card-head"><span>${escapeHtml(party.name)}</span></div>
                 ${party.slots.map(slot => {
                   const liveJob = slot.name ? ((guildRoster.find(m=>m.name===slot.name)||{}).job || slot.job || '') : '';
+                  const liveRole = slot.name ? ((guildRoster.find(m=>m.name===slot.name)||{}).party_role || '') : '';
                   return `
                   <div class="slot-btn readonly">
-                    <span class="slot-btn-label">${jobIconSvg(liveJob)}<span class="slot-label-text">${slot.name ? escapeHtml(slot.name) + (liveJob ? ' — '+escapeHtml(liveJob) : '') : '— empty —'}</span></span>
+                    <span class="slot-btn-label">${jobIconSvg(liveJob)}<span class="slot-label-text">${slot.name ? escapeHtml(slot.name) + (liveJob ? ' — '+escapeHtml(liveJob) : '') + (liveRole ? ' ('+escapeHtml(liveRole)+')' : '') : '— empty —'}</span></span>
                   </div>
                 `;}).join('')}
               </div>
