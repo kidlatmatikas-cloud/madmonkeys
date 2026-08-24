@@ -133,6 +133,7 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
 .lineup-title-link:hover .lineup-title-text{ color:var(--cyan); }
 .event-type-badge{ font-size:13px; font-weight:700; padding:5px 13px; border-radius:20px; background:rgba(91,141,239,.16); border:1px solid var(--cyan); color:var(--cyan); }
 .event-type-badge.overrun{ background:rgba(220,154,61,.16); border-color:var(--gold); color:var(--gold); }
+.slot-role-text{ font-size:11.5px; color:var(--gold); font-weight:500; }
 .lineup-title-text{ font-weight:700; font-size:15px; color:var(--ink); }
 .lineup-meta{ font-size:12.5px; color:var(--ink-soft); font-family:'Inter',sans-serif; margin-top:2px; }
 .tabs{ display:flex; gap:6px; margin:20px 0 4px; flex-wrap:wrap; }
@@ -3039,11 +3040,13 @@ function tplParty(party, ti, pi, crossBooked){
         const isCrossBooked = slot.name && !isDup && crossBooked.has(slot.name);
         const liveJob = slot.name ? ((roster.find(m=>m.name===slot.name)||{}).job || slot.job || '') : '';
         const liveRole = slot.name ? ((roster.find(m=>m.name===slot.name)||{}).party_role || '') : '';
-        const label = slot.name ? `${slot.name}${liveJob?' — '+liveJob:''}${liveRole?' ('+liveRole+')':''}` : '— empty —';
+        const labelHtml = slot.name
+          ? `${escapeHtml(slot.name)}${liveJob?' — '+escapeHtml(liveJob):''}${liveRole?' <span class="slot-role-text">('+escapeHtml(liveRole)+')</span>':''}`
+          : '\u2014 empty \u2014';
         const cls = isDup ? 'dup-slot' : (isCrossBooked ? 'cross-booked-slot' : '');
         const title = isDup ? 'Duplicated within this lineup' : (isCrossBooked ? 'Also assigned in another lineup for this same date' : '');
         return `<button class="slot-btn ${cls}" data-slot="${ti}-${pi}-${si}" ${title?`title="${title}"`:''}>
-          <span class="slot-btn-label">${jobIconSvg(liveJob)}<span class="slot-label-text">${escapeHtml(label)}</span></span>
+          <span class="slot-btn-label">${jobIconSvg(liveJob)}<span class="slot-label-text">${labelHtml}</span></span>
           <span style="color:var(--ink-soft); font-size:11px;">&#9662;</span>
         </button>`;
       }).join('')}
@@ -3086,7 +3089,7 @@ function renderPickerOptions(){
   const rows = list.map(m=>`
     <div class="assign-option ${m.name===currentVal?'is-selected':''}" data-pick="${escapeHtml(m.name)}">
       <span>${escapeHtml(m.name)}</span>
-      <span class="assign-option-job">${jobIconSvg(m.job)}${escapeHtml(m.job||'')}${m.party_role?' · '+escapeHtml(m.party_role):''}</span>
+      <span class="assign-option-job">${jobIconSvg(m.job)}${escapeHtml(m.job||'')}${m.party_role?' <span class="slot-role-text">'+escapeHtml(m.party_role)+'</span>':''}</span>
     </div>
   `).join('');
   $('assign-options').innerHTML = emptyRow + (rows || '<div style="padding:20px;text-align:center;color:var(--ink-soft);font-size:13px;">No matches</div>');
