@@ -880,7 +880,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>btn.addEventListener('click',
 
 /* ========================= Data loading ========================= */
 async function loadRoster(){
-  const { data } = await sb.from('roster_members').select('id,mmid,name,job,status').eq('guild_id', guildId).order('name');
+  const { data } = await sb.from('roster_members').select('id,mmid,name,job,status,party_role').eq('guild_id', guildId).order('name');
   roster = data || [];
 }
 async function loadLineups(){
@@ -2178,6 +2178,7 @@ function renderFullRosterTab(){
         <th class="sortable" data-sort-roster="mmid">UID${arrow('mmid')}</th>
         <th class="sortable" data-sort-roster="name">Name${arrow('name')}</th>
         <th class="sortable" data-sort-roster="job">Job${arrow('job')}</th>
+        <th class="sortable" data-sort-roster="party_role">Role${arrow('party_role')}</th>
         ${isAdmin() ? '<th></th>' : ''}
       </tr></thead>
       <tbody>${sorted.map(m=>`
@@ -2186,6 +2187,7 @@ function renderFullRosterTab(){
           <td data-label="UID"><input type="text" class="roster-mmid-input" data-fr-field="mmid" data-fr-id="${m.id}" value="${escapeHtml(m.mmid||'')}" placeholder="UID"></td>
           <td data-label="Name"><input type="text" class="roster-name-input" data-fr-field="name" data-fr-id="${m.id}" value="${escapeHtml(m.name)}" placeholder="Name"></td>
           <td data-label="Job"><div class="job-cell">${jobIconSvg(m.job)}<select class="roster-job-select" data-fr-field="job" data-fr-id="${m.id}"></select></div></td>
+          <td data-label="Role"><input type="text" class="roster-role-input" data-fr-field="party_role" data-fr-id="${m.id}" value="${escapeHtml(m.party_role||'')}" placeholder="e.g. Main Healer"></td>
           ${isAdmin() ? `<td data-label="" style="gap:6px;">
             ${m.status==='inactive'
               ? `<button class="chip left-guild-badge" data-fr-toggle-status="${m.id}" data-new-status="active" title="Reactivate this member">Left Guild \u2014 Reactivate</button>`
@@ -3036,7 +3038,8 @@ function tplParty(party, ti, pi, crossBooked){
         const isDup = slot.name && counts[slot.name] > 1;
         const isCrossBooked = slot.name && !isDup && crossBooked.has(slot.name);
         const liveJob = slot.name ? ((roster.find(m=>m.name===slot.name)||{}).job || slot.job || '') : '';
-        const label = slot.name ? `${slot.name}${liveJob?' — '+liveJob:''}` : '— empty —';
+        const liveRole = slot.name ? ((roster.find(m=>m.name===slot.name)||{}).party_role || '') : '';
+        const label = slot.name ? `${slot.name}${liveJob?' — '+liveJob:''}${liveRole?' ('+liveRole+')':''}` : '— empty —';
         const cls = isDup ? 'dup-slot' : (isCrossBooked ? 'cross-booked-slot' : '');
         const title = isDup ? 'Duplicated within this lineup' : (isCrossBooked ? 'Also assigned in another lineup for this same date' : '');
         return `<button class="slot-btn ${cls}" data-slot="${ti}-${pi}-${si}" ${title?`title="${title}"`:''}>
@@ -3083,7 +3086,7 @@ function renderPickerOptions(){
   const rows = list.map(m=>`
     <div class="assign-option ${m.name===currentVal?'is-selected':''}" data-pick="${escapeHtml(m.name)}">
       <span>${escapeHtml(m.name)}</span>
-      <span class="assign-option-job">${jobIconSvg(m.job)}${escapeHtml(m.job||'')}</span>
+      <span class="assign-option-job">${jobIconSvg(m.job)}${escapeHtml(m.job||'')}${m.party_role?' · '+escapeHtml(m.party_role):''}</span>
     </div>
   `).join('');
   $('assign-options').innerHTML = emptyRow + (rows || '<div style="padding:20px;text-align:center;color:var(--ink-soft);font-size:13px;">No matches</div>');
