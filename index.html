@@ -493,6 +493,7 @@ let fullRosterJobFilter = new Set(); // multi-select — empty means "All Jobs"
 let fullRosterSearch = '';
 let frSelected = new Set();
 let attendanceSort = { key:'attendance', dir:'desc' };
+let sessionSort = { key:null, dir:'desc' }; // null = default (rank-based) order
 
 function todayStr(){ return new Date().toISOString().slice(0,10); }
 
@@ -1783,9 +1784,16 @@ function renderSessionBody(id){
     if(r.rank){ if(String(r.rank).toUpperCase()==='MVP') return -1; const n=parseInt(r.rank,10); if(!isNaN(n)) return n; }
     return 9999;
   };
-  const rows = hasAnyRank ? [...s.entries].sort((a,b)=>rankSortValue(a)-rankSortValue(b)) : [...s.entries].sort((a,b)=>b.score-a.score);
+  const defaultRows = hasAnyRank ? [...s.entries].sort((a,b)=>rankSortValue(a)-rankSortValue(b)) : [...s.entries].sort((a,b)=>b.score-a.score);
+  const rows = sessionSort.key ? [...s.entries].sort((a,b)=>{
+    const dir = sessionSort.dir==='asc' ? 1 : -1;
+    let av = a[sessionSort.key], bv = b[sessionSort.key];
+    if(sessionSort.key==='name'){ av = (av||'').toLowerCase(); bv = (bv||'').toLowerCase(); }
+    if(av<bv) return -1*dir; if(av>bv) return 1*dir; return 0;
+  }) : defaultRows;
   const top = [...s.entries].sort((a,b)=>b.score-a.score)[0];
   const isMvp = r=> r.rank ? String(r.rank).toUpperCase()==='MVP' : (top && top.score>0 && r.name===top.name && r.score===top.score);
+  const sortArrow = key => sessionSort.key===key ? (sessionSort.dir==='asc'?' \u25B2':' \u25BC') : '';
 
   // Absent is tracked across every record for this SAME DATE, not just this
   // one session — otherwise a Discord Check-In save (which only contains
@@ -1811,7 +1819,16 @@ function renderSessionBody(id){
       <span class="status-line" id="date-status-${id}" style="margin:0;"></span>
     </div>
     <table class="responsive">
-      <thead><tr><th>Rank</th><th>Name</th><th class="num">Tablets</th><th class="num">Monsters</th><th class="num">Kills</th><th class="num">Assists</th><th class="num">Deaths</th><th class="num">Score</th></tr></thead>
+      <thead><tr>
+        <th class="sortable" data-sort-session="__reset" title="Reset to original order">Rank${sessionSort.key===null?' \u25BC':''}</th>
+        <th class="sortable" data-sort-session="name">Name${sortArrow('name')}</th>
+        <th class="num sortable" data-sort-session="tablets">Tablets${sortArrow('tablets')}</th>
+        <th class="num sortable" data-sort-session="monsters">Monsters${sortArrow('monsters')}</th>
+        <th class="num sortable" data-sort-session="kills">Kills${sortArrow('kills')}</th>
+        <th class="num sortable" data-sort-session="assists">Assists${sortArrow('assists')}</th>
+        <th class="num sortable" data-sort-session="deaths">Deaths${sortArrow('deaths')}</th>
+        <th class="num sortable" data-sort-session="score">Score${sortArrow('score')}</th>
+      </tr></thead>
       <tbody>${rows.map(r=>`
         <tr>
           <td data-label="Rank">${isMvp(r)?'<span class="mvp-seal">&#9733;</span>MVP':escapeHtml(r.rank||'—')}</td>
@@ -1845,6 +1862,13 @@ function renderSessionBody(id){
     const card = buildSessionExportCard(s);
     await exportCardAsImage(card, `${(s.event_name||'session').replace(/[^a-z0-9]+/gi,'-')}-${s.date||''}.png`, statusEl);
   });
+  body.querySelectorAll('[data-sort-session]').forEach(th=>th.addEventListener('click', ()=>{
+    const key = th.dataset.sortSession;
+    if(key==='__reset'){ sessionSort = {key:null, dir:'desc'}; }
+    else if(sessionSort.key===key){ sessionSort.dir = sessionSort.dir==='asc'?'desc':'asc'; }
+    else{ sessionSort = {key, dir: key==='name'?'asc':'desc'}; }
+    renderSessionBody(id);
+  }));
   body.querySelector('[data-save-date]').addEventListener('click', async ()=>{
     const newDate = $('edit-date-'+id).value;
     if(!newDate){
