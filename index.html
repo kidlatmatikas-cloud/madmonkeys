@@ -2350,17 +2350,20 @@ function renderFullRosterTab(){
           return;
         }
         if(m) m.name = newName;
+        await logActivity('Renamed roster member', `${oldName} \u2192 ${newName}`);
         await syncNameAcrossSessions(oldName, newName);
         await syncNameAcrossLineups(oldName, newName);
         setStatus('Member renamed — synced across sessions and lineups.', 'ok');
         return;
       }
+      const oldValue = m ? m[field] : null;
       await sb.from('roster_members').update({[field]: el.value}).eq('id', id);
       if(m) m[field] = el.value;
       if(field==='job'){
         const cell = el.closest('.job-cell');
         if(cell){ const oldIcon=cell.querySelector('.job-icon'); if(oldIcon) oldIcon.remove(); cell.insertAdjacentHTML('afterbegin', jobIconSvg(el.value)); }
         if(m) await syncJobAcrossLineups(m.name, el.value);
+        await logActivity('Changed roster member job', `${m?m.name:id}: ${oldValue||'none set'} \u2192 ${el.value}`);
       }
     });
   });
