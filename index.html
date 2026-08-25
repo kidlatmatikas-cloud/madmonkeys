@@ -2206,8 +2206,8 @@ function renderFullRosterTab(){
           const renamed = c.new_name && c.new_name !== c.old_name;
           const rejobbed = c.new_job && c.new_job !== c.old_job;
           return `<div style="padding:9px 0; border-bottom:1px solid var(--line); font-size:13px;">
-            ${renamed ? `<strong>${escapeHtml(c.old_name)}</strong> renamed to <strong style="color:var(--cyan);">${escapeHtml(c.new_name)}</strong>` : `<strong>${escapeHtml(c.old_name)}</strong>`}
-            ${rejobbed ? ` — job changed to <strong style="color:var(--gold);">${escapeHtml(c.new_job)}</strong>` : ''}
+            ${renamed ? `<strong>${escapeHtml(c.old_name)}</strong> \u2192 <strong style="color:var(--cyan);">${escapeHtml(c.new_name)}</strong>` : `<strong>${escapeHtml(c.old_name)}</strong>`}
+            ${rejobbed ? ` — job: <strong>${escapeHtml(c.old_job||'none set')}</strong> \u2192 <strong style="color:var(--gold);">${escapeHtml(c.new_job)}</strong>` : ''}
             <span style="color:var(--ink-faint); margin-left:8px;">${new Date(c.changed_at).toLocaleString()}</span>
           </div>`;
         }).join('') : '<div style="font-size:13px;color:var(--ink-soft);">No changes logged yet.</div>'}
