@@ -77,11 +77,12 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
   display:flex; justify-content:space-between; align-items:center; gap:8px; transition:border-color .12s;
 }
 .slot-btn:hover{ border-color:var(--line-strong); }
-.slot-btn.readonly{ cursor:default; }
+.slot-btn.readonly{ cursor:default; flex-wrap:wrap; row-gap:3px; }
 .slot-btn.readonly:hover{ border-color:var(--line); }
 .slot-btn-label{ flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:7px; overflow:hidden; }
 .slot-label-text{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .slot-role-text{ font-size:11.5px; color:var(--gold); font-weight:500; }
+.slot-btn.readonly .slot-role-text{ flex:1 1 100%; margin-left:29px; white-space:normal; overflow:visible; text-overflow:clip; }
 .slot-btn .job-icon{ width:20px; height:20px; }
 .dup-slot{ border-color:var(--magenta) !important; }
 /* assignment popover */
@@ -781,12 +782,13 @@ async function render(){
                 ${party.slots.map(slot => {
                   const liveJob = slot.name ? ((guildRoster.find(m=>m.name===slot.name)||{}).job || slot.job || '') : '';
                   const liveRole = slot.name ? ((guildRoster.find(m=>m.name===slot.name)||{}).party_role || '') : '';
-                  const labelHtml = slot.name
-                    ? escapeHtml(slot.name) + (liveJob ? ' — '+escapeHtml(liveJob) : '') + (liveRole ? ' <span class="slot-role-text">('+escapeHtml(liveRole)+')</span>' : '')
+                  const nameJobHtml = slot.name
+                    ? escapeHtml(slot.name) + (liveJob ? ' — '+escapeHtml(liveJob) : '')
                     : '\u2014 empty \u2014';
                   return `
                   <div class="slot-btn readonly">
-                    <span class="slot-btn-label">${jobIconSvg(liveJob)}<span class="slot-label-text">${labelHtml}</span></span>
+                    <span class="slot-btn-label">${jobIconSvg(liveJob)}<span class="slot-label-text">${nameJobHtml}</span></span>
+                    ${liveRole ? `<span class="slot-role-text">(${escapeHtml(liveRole)})</span>` : ''}
                   </div>
                 `;}).join('')}
               </div>
