@@ -332,6 +332,7 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
       <button class="tab-btn" data-tab="fullroster">Full Roster</button>
       <button class="tab-btn" data-tab="attendance">Attendance</button>
       <button class="tab-btn" data-tab="parties">Party List</button>
+      <button class="tab-btn" data-tab="itemdist">Item Distribution</button>
       <button class="tab-btn hidden" data-tab="officers" id="officers-tab-btn">Officers<span id="officers-badge" class="tab-badge hidden"></span></button>
       <button class="tab-btn hidden" data-tab="activitylog" id="activitylog-tab-btn">Activity Log</button>
     </nav>
@@ -380,6 +381,12 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
       <p class="section-hint">Each lineup gets its own public, view-only link — send it to guildmates, they can look but not touch.</p>
       <button class="btn gold" id="new-lineup-btn" style="margin-bottom:18px;">+ New Lineup</button>
       <div id="lineups-list"></div>
+    </div>
+
+    <div id="itemdist-tab" class="hud-panel hidden">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <div id="itemdist-content"></div>
     </div>
 
     <!-- Lineup editor -->
@@ -524,6 +531,9 @@ let discordAttendees = []; // [{ discordName, matchedName, alreadyRecorded }]
 let discordRole = ''; // 'Elite' | 'Sub' — which scoreboard this Discord screenshot should cross-check against
 let discordAttendanceLog = []; // loaded from the discord_attendance table — the persistent, browsable log
 let profileChangeLog = []; // loaded from the profile_changes table
+let itemDistDate = '';
+let itemDistItems = [{name:'', qty:1}];
+let itemDistResult = null; // {assignments, pages} once generated, else null
 let activityLog = []; // loaded from the activity_log table
 let eliteCapacity = 40, subCapacity = 40; // war-slot caps, not tied to specific roster names
 let draftEventName = 'WoE';
@@ -534,7 +544,7 @@ let draftOurScore = '';
 let draftOpponentScore = '';
 
 const $ = (id) => document.getElementById(id);
-const TAB_IDS = ['overview','new','log','discordlog','fullroster','attendance','parties','officers','activitylog'];
+const TAB_IDS = ['overview','new','log','discordlog','fullroster','attendance','parties','itemdist','officers','activitylog'];
 // Access tiers, from most to least restricted. 'level1' is the first of
 // what may become several restricted tiers over time — add more here
 // (e.g. 'level2') as new tiers are needed, without touching the rest of
@@ -875,6 +885,7 @@ function switchTab(tab){
   else if(tab==='fullroster') renderFullRosterTab();
   else if(tab==='attendance') renderAttendanceTab();
   else if(tab==='parties') renderLineupsList();
+  else if(tab==='itemdist') renderItemDistTab();
   else if(tab==='officers'){ renderOfficersTab(); $('officers-badge').classList.add('hidden'); }
   else if(tab==='activitylog') renderActivityLogTab();
 }
@@ -949,6 +960,44 @@ function getSessionDays(){
       recordCount: records.length,
     };
   });
+}
+/* ========================= Item Distribution ========================= */
+function getAllWarDates(){
+  const dates = new Set();
+  discordAttendanceLog.forEach(r=>{ if(r.date) dates.add(r.date); });
+  sessions.forEach(s=>{ if(s.date) dates.add(s.date); });
+  return [...dates].sort((a,b)=>b.localeCompare(a));
+}
+function getAttendeesForDate(date){
+  const names = new Set();
+  discordAttendanceLog.forEach(r=>{ if(r.date===date) names.add(r.member_name); });
+  sessions.forEach(s=>{ if(s.date===date) (s.entries||[]).forEach(e=>names.add(e.name)); });
+  return [...names].sort();
+}
+function shuffleArray(arr){
+  const a = [...arr];
+  for(let i=a.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i],a[j]] = [a[j],a[i]];
+  }
+  return a;
+}
+// Fair round-robin: shuffle the eligible pool ONCE, then cycle through it
+// repeatedly — so everyone gets a turn before anyone gets a second item,
+// no matter how many items there are.
+function generateDistribution(items, eligibleNames){
+  const units = [];
+  items.forEach(it=>{
+    const qty = parseInt(it.qty,10);
+    if(!it.name || !qty || qty<1) return;
+    for(let i=0;i<qty;i++) units.push(it.name);
+  });
+  if(units.length===0 || eligibleNames.length===0) return { assignments:[], pages:[] };
+  const shuffled = shuffleArray(eligibleNames);
+  const assignments = units.map((itemName,i) => ({ item: itemName, player: shuffled[i % shuffled.length] }));
+  const pages = [];
+  for(let i=0;i<assignments.length;i+=4) pages.push(assignments.slice(i,i+4));
+  return { assignments, pages };
 }
 function computeSessionRecord(){
   let wins=0, losses=0, ties=0, scored=0;
@@ -2478,6 +2527,126 @@ function renderAttendanceTab(){
 /* ========================= Party lineups list ========================= */
 function placedCount(teams){
   return (teams||[]).reduce((s,t)=>s+t.parties.reduce((s2,p)=>s2+p.slots.filter(x=>x.name).length,0),0);
+}
+function renderItemDistTab(){
+  const allDates = getAllWarDates();
+  const eligible = itemDistDate ? getAttendeesForDate(itemDistDate) : [];
+  $('itemdist-content').innerHTML = `
+    <h2 class="section-title">Item Distribution</h2>
+    <p class="section-hint">Divide auction items fairly among everyone who attended a specific war day — pulled from Discord Log and session records. Spread evenly first, so everyone gets a turn before anyone gets a second item.</p>
+
+    <div class="field-row">
+      <div style="flex:1 1 240px;">
+        <label for="itemdist-date">War Date</label>
+        <select id="itemdist-date">
+          <option value="">\u2014 Select a date \u2014</option>
+          ${allDates.map(d=>`<option value="${d}" ${itemDistDate===d?'selected':''}>${d}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <p style="margin:6px 0 22px; font-size:13px; color:var(--ink-soft);">
+      ${itemDistDate ? `${eligible.length} eligible attendee${eligible.length===1?'':'s'} for ${escapeHtml(itemDistDate)}${eligible.length ? ': '+eligible.map(escapeHtml).join(', ') : ' \u2014 no attendance found for this date.'}` : "Pick a date to see who's eligible."}
+    </p>
+
+    <label style="display:block; margin-bottom:8px;">Items to Distribute</label>
+    <div id="itemdist-items">
+      ${itemDistItems.map((it,i)=>`
+        <div class="field-row" style="margin-bottom:8px;">
+          <div style="flex:3;"><input type="text" placeholder="Item name" data-item-field="name" data-item-idx="${i}" value="${escapeHtml(it.name)}"></div>
+          <div style="flex:1;"><input type="number" min="1" placeholder="Qty" data-item-field="qty" data-item-idx="${i}" value="${escapeHtml(String(it.qty))}"></div>
+          <div style="flex:0 0 auto; display:flex; align-items:center;"><button class="row-del" data-remove-item="${i}" title="Remove this item">\u2715</button></div>
+        </div>
+      `).join('')}
+    </div>
+    <button class="btn ghost small" id="add-item-row-btn">+ Add Item</button>
+
+    <div style="margin-top:22px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <button class="btn gold" id="generate-dist-btn">Generate Distribution</button>
+      ${itemDistResult ? `<button class="btn ghost small" id="reroll-dist-btn">Reroll</button><button class="btn ghost small" id="export-dist-btn">Export as Image</button>` : ''}
+      <span class="status-line" id="itemdist-status" style="margin:0;"></span>
+    </div>
+
+    <div id="itemdist-results" style="margin-top:24px;">
+      ${itemDistResult ? renderDistPagesHtml(itemDistResult.pages) : ''}
+    </div>
+  `;
+  wireItemDistTab(eligible);
+}
+function renderDistPagesHtml(pages){
+  if(pages.length===0) return '<div class="empty-state">No items distributed yet.</div>';
+  return pages.map((page,pi)=>`
+    <div class="dash-panel" style="margin-bottom:14px;">
+      <h3>Page ${pi+1}</h3>
+      <table class="responsive">
+        <thead><tr><th>Line</th><th>Item</th><th>Player</th></tr></thead>
+        <tbody>
+          ${page.map((a,li)=>`<tr><td data-label="Line">${li+1}</td><td data-label="Item">${escapeHtml(a.item)}</td><td data-label="Player"><strong style="color:var(--cyan);">${escapeHtml(a.player)}</strong></td></tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `).join('');
+}
+function buildItemDistExportCard(){
+  return `
+    <div style="width:640px; padding:28px; background:#13151a; font-family:'Inter',sans-serif; color:#eceef2;">
+      <div style="font-size:22px; font-weight:800;">Item Distribution</div>
+      <div style="font-size:13px; color:#8b93a1; margin:4px 0 20px;">${escapeHtml(itemDistDate)}</div>
+      ${itemDistResult.pages.map((page,pi)=>`
+        <div style="font-size:13px; font-weight:700; color:#4a78c9; margin:16px 0 8px;">Page ${pi+1}</div>
+        <table style="width:100%; border-collapse:collapse; font-size:13px; font-family:'Inter',sans-serif; margin-bottom:8px;">
+          ${page.map((a,li)=>`<tr style="border-bottom:1px solid #22242b;">
+            <td style="padding:7px 4px; color:#575e6b; width:24px;">${li+1}</td>
+            <td style="padding:7px 4px;">${escapeHtml(a.item)}</td>
+            <td style="padding:7px 4px; text-align:right; font-weight:700; color:#5b8def;">${escapeHtml(a.player)}</td>
+          </tr>`).join('')}
+        </table>
+      `).join('')}
+      <div style="margin-top:12px; font-size:10.5px; color:#575e6b;">Guild War Log</div>
+    </div>
+  `;
+}
+function wireItemDistTab(eligible){
+  $('itemdist-date').addEventListener('change', e=>{
+    itemDistDate = e.target.value;
+    itemDistResult = null;
+    renderItemDistTab();
+  });
+  document.querySelectorAll('[data-item-field]').forEach(inp=>inp.addEventListener('input', e=>{
+    const idx = +e.target.dataset.itemIdx, field = e.target.dataset.itemField;
+    itemDistItems[idx][field] = e.target.value;
+  }));
+  document.querySelectorAll('[data-remove-item]').forEach(btn=>btn.addEventListener('click', ()=>{
+    itemDistItems.splice(+btn.dataset.removeItem,1);
+    if(itemDistItems.length===0) itemDistItems.push({name:'',qty:1});
+    renderItemDistTab();
+  }));
+  $('add-item-row-btn').addEventListener('click', ()=>{
+    itemDistItems.push({name:'', qty:1});
+    renderItemDistTab();
+  });
+  $('generate-dist-btn').addEventListener('click', ()=>{
+    const statusEl = $('itemdist-status');
+    if(!itemDistDate){ statusEl.className='status-line error'; statusEl.textContent='Pick a war date first.'; return; }
+    if(eligible.length===0){ statusEl.className='status-line error'; statusEl.textContent='No eligible attendees found for that date.'; return; }
+    const validItems = itemDistItems.filter(it=>it.name && parseInt(it.qty,10)>0);
+    if(validItems.length===0){ statusEl.className='status-line error'; statusEl.textContent='Add at least one item with a quantity.'; return; }
+    itemDistResult = generateDistribution(validItems, eligible);
+    renderItemDistTab();
+    const freshStatus = $('itemdist-status');
+    if(freshStatus){ freshStatus.className='status-line ok'; freshStatus.textContent=`Distributed ${itemDistResult.assignments.length} item(s) across ${eligible.length} people.`; }
+  });
+  const rerollBtn = $('reroll-dist-btn');
+  if(rerollBtn) rerollBtn.addEventListener('click', ()=>{
+    const validItems = itemDistItems.filter(it=>it.name && parseInt(it.qty,10)>0);
+    itemDistResult = generateDistribution(validItems, eligible);
+    renderItemDistTab();
+  });
+  const exportBtn = $('export-dist-btn');
+  if(exportBtn) exportBtn.addEventListener('click', async ()=>{
+    const statusEl = $('itemdist-status');
+    const card = buildItemDistExportCard();
+    await exportCardAsImage(card, `item-distribution-${itemDistDate}.png`, statusEl);
+  });
 }
 function renderLineupsList(){
   $('lineups-list').innerHTML = lineups.length ? lineups.map(l=>`
