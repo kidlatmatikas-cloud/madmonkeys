@@ -1104,7 +1104,8 @@ function renderOverviewTab(){
   const rosterStats = computeRosterStats();
   const mvpCounts = computeMvpCounts();
   const sessionDays = getSessionDays();
-  const topAvg = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
+  const TOP_AVG_MIN_SESSIONS = 3; // filters out a single lucky war skewing the leaderboard
+  const topAvg = rosterStats.filter(m=>m.sessions>=TOP_AVG_MIN_SESSIONS).sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
   const topHighPriest = rosterStats.filter(m=>m.sessions>0 && m.job==='High Priest').sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
   const topKills = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.kills-a.kills).slice(0,5);
   const topDeathsElite = rosterStats.filter(m=>m.eliteDeaths>0).sort((a,b)=>b.eliteDeaths-a.eliteDeaths).slice(0,5);
@@ -1183,7 +1184,7 @@ function renderOverviewTab(){
             </div>
           </div>`;
         }).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
-      ${dashPanel('top-avg-score', 'Top Average Score', topAvg.length ? topAvg.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.avgScore.toFixed(0)}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No scored sessions yet.</div>', hiddenPanels)}
+      ${dashPanel('top-avg-score', 'Top Average Score', `<div style="font-size:11px;color:var(--ink-faint);margin:-4px 0 10px;">Minimum ${TOP_AVG_MIN_SESSIONS} sessions to qualify</div>${topAvg.length ? topAvg.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.avgScore.toFixed(0)}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No one has reached the minimum sessions yet.</div>'}`, hiddenPanels)}
       ${dashPanel('top-high-priest', 'Top High Priest', topHighPriest.length ? topHighPriest.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.avgScore.toFixed(0)}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No High Priest sessions yet.</div>', hiddenPanels)}
       ${dashPanel('most-mvps', 'Most MVPs', topMvp.length ? topMvp.map(([name,count],i)=>{
           const job=(roster.find(m=>m.name===name)||{}).job||'';
