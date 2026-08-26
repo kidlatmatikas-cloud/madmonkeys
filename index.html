@@ -1037,6 +1037,7 @@ function computeRosterStats(){
   roster.forEach(m=>{ map[m.name]=blankMember(m.name); map[m.name].id=m.id; map[m.name].mmid=m.mmid||''; map[m.name].job=m.job||''; });
   const attendedDates = {}; // name -> Set of dates they appeared on
   const attendedDatesElite = {}, attendedDatesSub = {};
+  const scoreByDate = {}; // name -> { date: summed score for that day }
   sessions.forEach(s=>(s.entries||[]).forEach(r=>{
     if(!map[r.name]) map[r.name]=blankMember(r.name);
     const m=map[r.name];
@@ -1057,7 +1058,14 @@ function computeRosterStats(){
       if(!attendedDatesSub[r.name]) attendedDatesSub[r.name] = new Set();
       if(s.date) attendedDatesSub[r.name].add(s.date);
     }
-    m.scoreSum+=r.score; if(r.score>m.best) m.best=r.score;
+    if(r.score>m.best) m.best=r.score;
+    if(s.date){
+      // Same date recorded twice (e.g. Elite + Sub the same war day) counts
+      // as ONE day's combined score, not two separate contributions — same
+      // "one war day" principle already used for attendance and K/A/D.
+      if(!scoreByDate[r.name]) scoreByDate[r.name] = {};
+      scoreByDate[r.name][s.date] = (scoreByDate[r.name][s.date]||0) + r.score;
+    }
     if(!attendedDates[r.name]) attendedDates[r.name] = new Set();
     if(s.date) attendedDates[r.name].add(s.date);
   }));
@@ -1065,7 +1073,9 @@ function computeRosterStats(){
     const daysAttended = (attendedDates[m.name] || new Set()).size;
     const eliteSessions = (attendedDatesElite[m.name] || new Set()).size;
     const subSessions = (attendedDatesSub[m.name] || new Set()).size;
-    return { ...m, sessions: daysAttended, eliteSessions, subSessions, attendance: totalDays?(daysAttended/totalDays*100):0, avgScore: daysAttended?(m.scoreSum/daysAttended):0 };
+    const dateScores = Object.values(scoreByDate[m.name] || {});
+    const totalScore = dateScores.reduce((a,b)=>a+b, 0);
+    return { ...m, sessions: daysAttended, eliteSessions, subSessions, attendance: totalDays?(daysAttended/totalDays*100):0, avgScore: daysAttended?(totalScore/daysAttended):0 };
   });
 }
 
