@@ -2636,7 +2636,7 @@ function renderItemDistTab(){
 
     <div style="margin-top:22px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
       <button class="btn gold" id="generate-dist-btn">Generate Distribution</button>
-      ${itemDistResult ? `<button class="btn ghost small" id="export-dist-btn">Export as Image</button>` : ''}
+      ${itemDistResult ? `<button class="btn ghost small" id="export-dist-btn">Export as Image</button><button class="btn gold small" id="itemdist-share-btn">Share with Members</button>` : ''}
       <span class="status-line" id="itemdist-status" style="margin:0;"></span>
     </div>
 
@@ -2654,24 +2654,38 @@ function renderItemDistTab(){
 // total by hand.
 function renderDistSummaryHtml(assignments){
   const perPerson = {}; // name -> { itemLabel: count, ... }
+  const itemLabelsSet = new Set();
   assignments.forEach(a=>{
     if(a.mode!=='auto') return;
     if(!perPerson[a.player]) perPerson[a.player] = {};
     const label = AUCTION_ITEM_ABBREVIATIONS[a.item] || a.item;
     perPerson[a.player][label] = (perPerson[a.player][label]||0) + 1;
+    itemLabelsSet.add(label);
   });
   const names = Object.keys(perPerson).sort();
   if(names.length===0) return '';
+  const itemLabels = [...itemLabelsSet].sort();
   return `
     <div class="hud-panel" style="margin-bottom:18px;">
       <h3 class="section-title" style="font-size:15px;">Distribution Summary</h3>
       <p class="section-hint">Pieces per player, broken down by item.</p>
-      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:8px 16px;">
-        ${names.map(name=>{
-          const breakdown = Object.entries(perPerson[name]).map(([label,count])=>`${escapeHtml(label)} = <span style="color:var(--cyan); font-weight:600;">${count} pc${count===1?'':'s'}</span>`).join(', ');
-          return `<div style="font-size:13.5px;"><strong>${escapeHtml(name)}</strong>: ${breakdown}</div>`;
-        }).join('')}
-      </div>
+      <table class="responsive">
+        <thead><tr>
+          <th>Player</th>
+          ${itemLabels.map(l=>`<th class="num">${escapeHtml(l)}</th>`).join('')}
+          <th class="num">Total</th>
+        </tr></thead>
+        <tbody>
+          ${names.map(name=>{
+            const total = itemLabels.reduce((sum,l)=>sum+(perPerson[name][l]||0), 0);
+            return `<tr>
+              <td data-label="Player"><strong>${escapeHtml(name)}</strong></td>
+              ${itemLabels.map(l=>`<td data-label="${escapeHtml(l)}" class="num">${perPerson[name][l]||'\u2014'}</td>`).join('')}
+              <td data-label="Total" class="num"><strong style="color:var(--cyan);">${total}</strong></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
     </div>
   `;
 }
@@ -2812,6 +2826,24 @@ function wireItemDistTab(eligible){
     const card = buildItemDistExportCard();
     const filenamePart = (itemDistLabel || 'batch').replace(/[^a-z0-9]+/gi,'-');
     await exportCardAsImage(card, `item-distribution-${filenamePart}.png`, statusEl);
+  });
+  const shareBtn = $('itemdist-share-btn');
+  if(shareBtn) shareBtn.addEventListener('click', async ()=>{
+    const statusEl = $('itemdist-status');
+    statusEl.className='status-line'; statusEl.textContent='Creating link\u2026';
+    const { data, error } = await sb.from('item_distributions').insert({
+      guild_id: guildId,
+      label: itemDistLabel || null,
+      assignments: itemDistResult.assignments,
+      pages: itemDistResult.pages,
+    }).select('share_slug').single();
+    if(error || !data){
+      statusEl.className='status-line error'; statusEl.textContent="Couldn't create the link \u2014 try again.";
+      return;
+    }
+    const url = `${location.origin}${location.pathname.replace('index.html','')}distribution.html?slug=${data.share_slug}`;
+    navigator.clipboard.writeText(url);
+    statusEl.className='status-line ok'; statusEl.textContent='Share link copied! Expires in 24 hours.';
   });
 }
 function renderLineupsList(){
