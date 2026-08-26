@@ -503,6 +503,14 @@ let attendanceSort = { key:'attendance', dir:'desc' };
 let sessionSort = { key:null, dir:'desc' }; // null = default (rank-based) order
 
 function todayStr(){ return new Date().toISOString().slice(0,10); }
+// Once a war has happened, the job shown for each assigned member is a
+// historical record — it should NOT silently change if that person's job
+// gets updated later in Full Roster. Only today-or-later lineups (still
+// being planned) show the live, most-current job.
+function effectiveJob(slot, lineupDate){
+  if(lineupDate && lineupDate < todayStr()) return slot.job || '';
+  return (roster.find(m=>m.name===slot.name)||{}).job || slot.job || '';
+}
 
 async function exportFullBackup(){
   setStatus('Preparing backup…', null);
@@ -2120,7 +2128,13 @@ function exportRosterExcel(){
 // they're already placed in still showing their OLD job. This keeps
 // every lineup's stored copy in sync the moment the job changes.
 async function syncJobAcrossLineups(name, newJob){
-  const affected = lineups.filter(l => (l.teams||[]).some(t => (t.parties||[]).some(p => (p.slots||[]).some(s => s.name === name))));
+  // Past lineups are a frozen historical record (see effectiveJob) — a
+  // roster job change should only propagate into lineups that haven't
+  // happened yet (today or later), not rewrite what already happened.
+  const affected = lineups.filter(l =>
+    (!l.date || l.date >= todayStr()) &&
+    (l.teams||[]).some(t => (t.parties||[]).some(p => (p.slots||[]).some(s => s.name === name)))
+  );
   for(const lineup of affected){
     const updatedTeams = lineup.teams.map(t => ({
       ...t,
@@ -2827,7 +2841,7 @@ function computePartyReport(l){
           // see the note in computeRosterStats for why.
           if(e._role==='Elite') tablets += e.tablets||0;
         });
-        return { name:slot.name, job:((roster.find(m=>m.name===slot.name)||{}).job || slot.job || ''), kills, assists, deaths, tablets, score };
+        return { name:slot.name, job:effectiveJob(slot, l.date), kills, assists, deaths, tablets, score };
       });
       const kills = members.reduce((s,m)=>s+m.kills,0);
       const assists = members.reduce((s,m)=>s+m.assists,0);
@@ -2866,7 +2880,7 @@ function computeJobSummary(l){
     let total = 0;
     team.parties.forEach(p=>p.slots.forEach(s=>{
       if(s.name){
-        const job = (roster.find(m=>m.name===s.name)||{}).job || s.job || 'No Job Set';
+        const job = effectiveJob(s, l.date) || 'No Job Set';
         counts[job] = (counts[job]||0)+1;
         total++;
       }
@@ -3007,8 +3021,8 @@ function findCrossLineupBookings(){
   });
   return names;
 }
-function partyJobWarnings(party){
-  const jobs = party.slots.filter(s=>s.name).map(s=>(roster.find(m=>m.name===s.name)||{}).job || s.job || '').filter(Boolean);
+function partyJobWarnings(party, lineupDate){
+  const jobs = party.slots.filter(s=>s.name).map(s=>effectiveJob(s, lineupDate)).filter(Boolean);
   if(jobs.length===0) return [];
   const warnings = [];
   if(!jobs.includes('High Priest')) warnings.push('No healer');
@@ -3092,7 +3106,7 @@ function renderEditor(){
     ${tplAbsences()}
     ${tplPartyReport(l)}
     ${tplJobSummary(l)}
-    ${l.teams.map((team,ti)=>tplTeam(team,ti,crossBooked)).join('')}
+    ${l.teams.map((team,ti)=>tplTeam(team,ti,crossBooked,l.date)).join('')}
     <button class="btn gold small" id="add-team-btn" style="margin-bottom:20px;">+ Add Team</button>
     <h3 class="section-title" style="font-size:14px;">Unassigned (${unassigned.length})</h3>
     <div>${unassigned.length ? unassigned.map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('') : '<div style="font-size:13px;color:var(--ink-soft);">Everyone is placed.</div>'}</div>
@@ -3215,7 +3229,7 @@ function renderEditor(){
     await exportCardAsImage(card, `${(currentLineup.name||'party-report').replace(/[^a-z0-9]+/gi,'-')}-${currentLineup.date||''}.png`, statusEl);
   });
 }
-function tplTeam(team, ti, crossBooked){
+function tplTeam(team, ti, crossBooked, lineupDate){
   return `
     <div class="team-block">
       <div class="team-header">
@@ -3225,13 +3239,13 @@ function tplTeam(team, ti, crossBooked){
           <button class="btn danger small" data-remove-team="${ti}">Remove Team</button>
         </div>
       </div>
-      <div class="party-grid">${team.parties.map((p,pi)=>tplParty(p,ti,pi,crossBooked)).join('')}</div>
+      <div class="party-grid">${team.parties.map((p,pi)=>tplParty(p,ti,pi,crossBooked,lineupDate)).join('')}</div>
     </div>
   `;
 }
-function tplParty(party, ti, pi, crossBooked){
+function tplParty(party, ti, pi, crossBooked, lineupDate){
   const counts = countByName();
-  const warnings = partyJobWarnings(party);
+  const warnings = partyJobWarnings(party, lineupDate);
   const filledCount = party.slots.filter(s=>s.name).length;
   const totalSlots = party.slots.length;
   const isFull = filledCount === totalSlots;
@@ -3245,7 +3259,7 @@ function tplParty(party, ti, pi, crossBooked){
       ${party.slots.map((slot,si)=>{
         const isDup = slot.name && counts[slot.name] > 1;
         const isCrossBooked = slot.name && !isDup && crossBooked.has(slot.name);
-        const liveJob = slot.name ? ((roster.find(m=>m.name===slot.name)||{}).job || slot.job || '') : '';
+        const liveJob = slot.name ? effectiveJob(slot, lineupDate) : '';
         const liveRole = slot.name ? ((roster.find(m=>m.name===slot.name)||{}).party_role || '') : '';
         const labelHtml = slot.name
           ? `${escapeHtml(slot.name)}${liveJob?' — '+escapeHtml(liveJob):''}${liveRole?' <span class="slot-role-text">('+escapeHtml(liveRole)+')</span>':''}`
