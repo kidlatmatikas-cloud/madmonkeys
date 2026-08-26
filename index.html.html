@@ -129,6 +129,12 @@ input:focus, select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 
 .lineup-title{ font-weight:700; font-size:15px; }
 .lineup-title a{ color:var(--ink); text-decoration:none; cursor:pointer; }
 .lineup-title a:hover{ color:var(--cyan); }
+.lineup-title-link{ display:inline-flex; align-items:center; gap:10px; flex-wrap:wrap; text-decoration:none; cursor:pointer; }
+.lineup-title-link:hover .lineup-title-text{ color:var(--cyan); }
+.event-type-badge{ font-size:13px; font-weight:700; padding:5px 13px; border-radius:20px; background:rgba(91,141,239,.16); border:1px solid var(--cyan); color:var(--cyan); }
+.event-type-badge.overrun{ background:rgba(220,154,61,.16); border-color:var(--gold); color:var(--gold); }
+.slot-role-text{ font-size:11.5px; color:var(--gold); font-weight:500; }
+.lineup-title-text{ font-weight:700; font-size:15px; color:var(--ink); }
 .lineup-meta{ font-size:12.5px; color:var(--ink-soft); font-family:'Inter',sans-serif; margin-top:2px; }
 .tabs{ display:flex; gap:6px; margin:20px 0 4px; flex-wrap:wrap; }
 .tab-btn{ position:relative; font-weight:600; font-size:14px; letter-spacing:0; background:var(--bg-panel-2); border:1px solid var(--line); border-radius:7px; padding:9px 18px; cursor:pointer; color:var(--ink-soft); transition:background .12s, color .12s; }
@@ -231,6 +237,10 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
 .roster-sort .btn.active{ color:var(--cyan); border-color:var(--cyan); }
 .job-filter-details summary{ cursor:pointer; color:var(--cyan-dim); font-weight:700; font-size:13px; list-style:revert; }
 .job-filter-details summary:hover{ color:var(--cyan); }
+.is-inactive-member{ opacity:.55; }
+.is-inactive-member input, .is-inactive-member select{ color:var(--ink-faint); }
+.left-guild-badge{ color:var(--magenta); border-color:var(--magenta); cursor:pointer; font-size:11.5px; padding:5px 10px; white-space:nowrap; }
+.left-guild-badge:hover{ background:rgba(229,83,92,.12); }
 @media (max-width:800px){
   table.responsive thead{ display:none; }
   table.responsive, table.responsive tbody, table.responsive tr, table.responsive td{ display:block; width:100%; }
@@ -322,6 +332,7 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
       <button class="tab-btn" data-tab="fullroster">Full Roster</button>
       <button class="tab-btn" data-tab="attendance">Attendance</button>
       <button class="tab-btn" data-tab="parties">Party List</button>
+      <button class="tab-btn" data-tab="itemdist">Item Distribution</button>
       <button class="tab-btn hidden" data-tab="officers" id="officers-tab-btn">Officers<span id="officers-badge" class="tab-badge hidden"></span></button>
       <button class="tab-btn hidden" data-tab="activitylog" id="activitylog-tab-btn">Activity Log</button>
     </nav>
@@ -372,6 +383,12 @@ tbody tr.is-selected{ background:rgba(45,226,255,.08); }
       <div id="lineups-list"></div>
     </div>
 
+    <div id="itemdist-tab" class="hud-panel hidden">
+      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
+      <div id="itemdist-content"></div>
+    </div>
+
     <!-- Lineup editor -->
     <div id="editor-tab" class="hud-panel hidden">
       <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
@@ -417,6 +434,26 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ========================= Job data ========================= */
 const JOB_OPTIONS = ['High Priest','High Wizard','Paladin','Lord Knight','Mastersmith','Summoner','Sniper','Assasin Cross','Stalker','Biochemist','Rebellion','Gypsy','Minstrel','Professor','Asura'];
+const EVENT_TYPES = ['Guild League', 'Guild Overrun'];
+const EVENT_MAP_CONFIG = {
+  'Guild League': { label: 'Map', options: ['Stellar Clash', 'Vale of Clash', 'Vigrid of Avenge'] },
+  'Guild Overrun': { label: 'Guild Category', options: ['Pinnacle Group'] },
+};
+// Auto-generates the lineup's display name from its event fields, since
+// there's no manual name field — keeps every other feature that reads
+// lineup.name (Discord posts, Party Report, Activity Log, share page)
+// working without extra changes.
+function computeLineupName(l){
+  if(!l.event_type) return l.name || 'New Lineup';
+  const datePart = l.date ? ` — ${l.date}` : '';
+  if(l.event_type === 'Guild League'){
+    return `Guild League${l.opposing_guild ? ' vs '+l.opposing_guild : ''}${datePart}`;
+  }
+  if(l.event_type === 'Guild Overrun'){
+    return `Guild Overrun${datePart}`;
+  }
+  return `${l.event_type}${datePart}`;
+}
 const JOB_ICONS = {
   'High Priest':'<path d="M10 2h4v7h7v4h-7v9h-4v-9H3V9h7V2z"/>',
   'High Wizard':'<circle cx="12" cy="5" r="3"/><path d="M10.8 8.5h2.4v13.5h-2.4z"/><path d="M19 2.5l0.9 2.2 2.2 0.9-2.2 0.9-0.9 2.2-0.9-2.2-2.2-0.9 2.2-0.9z"/>',
@@ -463,6 +500,7 @@ let fullRosterJobFilter = new Set(); // multi-select — empty means "All Jobs"
 let fullRosterSearch = '';
 let frSelected = new Set();
 let attendanceSort = { key:'attendance', dir:'desc' };
+let sessionSort = { key:null, dir:'desc' }; // null = default (rank-based) order
 
 function todayStr(){ return new Date().toISOString().slice(0,10); }
 
@@ -493,6 +531,9 @@ let discordAttendees = []; // [{ discordName, matchedName, alreadyRecorded }]
 let discordRole = ''; // 'Elite' | 'Sub' — which scoreboard this Discord screenshot should cross-check against
 let discordAttendanceLog = []; // loaded from the discord_attendance table — the persistent, browsable log
 let profileChangeLog = []; // loaded from the profile_changes table
+let itemDistDate = '';
+let itemDistItems = [{name:'', qty:1}];
+let itemDistResult = null; // {assignments, pages} once generated, else null
 let activityLog = []; // loaded from the activity_log table
 let eliteCapacity = 40, subCapacity = 40; // war-slot caps, not tied to specific roster names
 let draftEventName = 'WoE';
@@ -503,7 +544,7 @@ let draftOurScore = '';
 let draftOpponentScore = '';
 
 const $ = (id) => document.getElementById(id);
-const TAB_IDS = ['overview','new','log','discordlog','fullroster','attendance','parties','officers','activitylog'];
+const TAB_IDS = ['overview','new','log','discordlog','fullroster','attendance','parties','itemdist','officers','activitylog'];
 // Access tiers, from most to least restricted. 'level1' is the first of
 // what may become several restricted tiers over time — add more here
 // (e.g. 'level2') as new tiers are needed, without touching the rest of
@@ -844,6 +885,7 @@ function switchTab(tab){
   else if(tab==='fullroster') renderFullRosterTab();
   else if(tab==='attendance') renderAttendanceTab();
   else if(tab==='parties') renderLineupsList();
+  else if(tab==='itemdist') renderItemDistTab();
   else if(tab==='officers'){ renderOfficersTab(); $('officers-badge').classList.add('hidden'); }
   else if(tab==='activitylog') renderActivityLogTab();
 }
@@ -851,7 +893,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>btn.addEventListener('click',
 
 /* ========================= Data loading ========================= */
 async function loadRoster(){
-  const { data } = await sb.from('roster_members').select('id,mmid,name,job').eq('guild_id', guildId).order('name');
+  const { data } = await sb.from('roster_members').select('id,mmid,name,job,status,party_role').eq('guild_id', guildId).order('name');
   roster = data || [];
 }
 async function loadLineups(){
@@ -919,6 +961,44 @@ function getSessionDays(){
     };
   });
 }
+/* ========================= Item Distribution ========================= */
+function getAllWarDates(){
+  const dates = new Set();
+  discordAttendanceLog.forEach(r=>{ if(r.date) dates.add(r.date); });
+  sessions.forEach(s=>{ if(s.date) dates.add(s.date); });
+  return [...dates].sort((a,b)=>b.localeCompare(a));
+}
+function getAttendeesForDate(date){
+  const names = new Set();
+  discordAttendanceLog.forEach(r=>{ if(r.date===date) names.add(r.member_name); });
+  sessions.forEach(s=>{ if(s.date===date) (s.entries||[]).forEach(e=>names.add(e.name)); });
+  return [...names].sort();
+}
+function shuffleArray(arr){
+  const a = [...arr];
+  for(let i=a.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i],a[j]] = [a[j],a[i]];
+  }
+  return a;
+}
+// Fair round-robin: shuffle the eligible pool ONCE, then cycle through it
+// repeatedly — so everyone gets a turn before anyone gets a second item,
+// no matter how many items there are.
+function generateDistribution(items, eligibleNames){
+  const units = [];
+  items.forEach(it=>{
+    const qty = parseInt(it.qty,10);
+    if(!it.name || !qty || qty<1) return;
+    for(let i=0;i<qty;i++) units.push(it.name);
+  });
+  if(units.length===0 || eligibleNames.length===0) return { assignments:[], pages:[] };
+  const shuffled = shuffleArray(eligibleNames);
+  const assignments = units.map((itemName,i) => ({ item: itemName, player: shuffled[i % shuffled.length] }));
+  const pages = [];
+  for(let i=0;i<assignments.length;i+=4) pages.push(assignments.slice(i,i+4));
+  return { assignments, pages };
+}
 function computeSessionRecord(){
   let wins=0, losses=0, ties=0, scored=0;
   getSessionDays().forEach(s=>{
@@ -957,6 +1037,7 @@ function computeRosterStats(){
   roster.forEach(m=>{ map[m.name]=blankMember(m.name); map[m.name].id=m.id; map[m.name].mmid=m.mmid||''; map[m.name].job=m.job||''; });
   const attendedDates = {}; // name -> Set of dates they appeared on
   const attendedDatesElite = {}, attendedDatesSub = {};
+  const scoreByDate = {}; // name -> { date: summed score for that day }
   sessions.forEach(s=>(s.entries||[]).forEach(r=>{
     if(!map[r.name]) map[r.name]=blankMember(r.name);
     const m=map[r.name];
@@ -977,7 +1058,14 @@ function computeRosterStats(){
       if(!attendedDatesSub[r.name]) attendedDatesSub[r.name] = new Set();
       if(s.date) attendedDatesSub[r.name].add(s.date);
     }
-    m.scoreSum+=r.score; if(r.score>m.best) m.best=r.score;
+    if(r.score>m.best) m.best=r.score;
+    if(s.date){
+      // Same date recorded twice (e.g. Elite + Sub the same war day) counts
+      // as ONE day's combined score, not two separate contributions — same
+      // "one war day" principle already used for attendance and K/A/D.
+      if(!scoreByDate[r.name]) scoreByDate[r.name] = {};
+      scoreByDate[r.name][s.date] = (scoreByDate[r.name][s.date]||0) + r.score;
+    }
     if(!attendedDates[r.name]) attendedDates[r.name] = new Set();
     if(s.date) attendedDates[r.name].add(s.date);
   }));
@@ -985,7 +1073,9 @@ function computeRosterStats(){
     const daysAttended = (attendedDates[m.name] || new Set()).size;
     const eliteSessions = (attendedDatesElite[m.name] || new Set()).size;
     const subSessions = (attendedDatesSub[m.name] || new Set()).size;
-    return { ...m, sessions: daysAttended, eliteSessions, subSessions, attendance: totalDays?(daysAttended/totalDays*100):0, avgScore: daysAttended?(m.scoreSum/daysAttended):0 };
+    const dateScores = Object.values(scoreByDate[m.name] || {});
+    const totalScore = dateScores.reduce((a,b)=>a+b, 0);
+    return { ...m, sessions: daysAttended, eliteSessions, subSessions, attendance: totalDays?(daysAttended/totalDays*100):0, avgScore: daysAttended?(totalScore/daysAttended):0 };
   });
 }
 
@@ -1024,7 +1114,8 @@ function renderOverviewTab(){
   const rosterStats = computeRosterStats();
   const mvpCounts = computeMvpCounts();
   const sessionDays = getSessionDays();
-  const topAvg = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
+  const TOP_AVG_MIN_SESSIONS = 3; // filters out a single lucky war skewing the leaderboard
+  const topAvg = rosterStats.filter(m=>m.sessions>=TOP_AVG_MIN_SESSIONS).sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
   const topHighPriest = rosterStats.filter(m=>m.sessions>0 && m.job==='High Priest').sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
   const topKills = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.kills-a.kills).slice(0,5);
   const topDeathsElite = rosterStats.filter(m=>m.eliteDeaths>0).sort((a,b)=>b.eliteDeaths-a.eliteDeaths).slice(0,5);
@@ -1103,7 +1194,7 @@ function renderOverviewTab(){
             </div>
           </div>`;
         }).join('') : '<div class="empty-state" style="padding:14px 4px;">No sessions yet.</div>', hiddenPanels)}
-      ${dashPanel('top-avg-score', 'Top Average Score', topAvg.length ? topAvg.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.avgScore.toFixed(0)}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No scored sessions yet.</div>', hiddenPanels)}
+      ${dashPanel('top-avg-score', 'Top Average Score', `<div style="font-size:11px;color:var(--ink-faint);margin:-4px 0 10px;">Minimum ${TOP_AVG_MIN_SESSIONS} sessions to qualify</div>${topAvg.length ? topAvg.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.avgScore.toFixed(0)}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No one has reached the minimum sessions yet.</div>'}`, hiddenPanels)}
       ${dashPanel('top-high-priest', 'Top High Priest', topHighPriest.length ? topHighPriest.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m.avgScore.toFixed(0)}</span></div>`).join('') : '<div class="empty-state" style="padding:14px 4px;">No High Priest sessions yet.</div>', hiddenPanels)}
       ${dashPanel('most-mvps', 'Most MVPs', topMvp.length ? topMvp.map(([name,count],i)=>{
           const job=(roster.find(m=>m.name===name)||{}).job||'';
@@ -1753,9 +1844,16 @@ function renderSessionBody(id){
     if(r.rank){ if(String(r.rank).toUpperCase()==='MVP') return -1; const n=parseInt(r.rank,10); if(!isNaN(n)) return n; }
     return 9999;
   };
-  const rows = hasAnyRank ? [...s.entries].sort((a,b)=>rankSortValue(a)-rankSortValue(b)) : [...s.entries].sort((a,b)=>b.score-a.score);
+  const defaultRows = hasAnyRank ? [...s.entries].sort((a,b)=>rankSortValue(a)-rankSortValue(b)) : [...s.entries].sort((a,b)=>b.score-a.score);
+  const rows = sessionSort.key ? [...s.entries].sort((a,b)=>{
+    const dir = sessionSort.dir==='asc' ? 1 : -1;
+    let av = a[sessionSort.key], bv = b[sessionSort.key];
+    if(sessionSort.key==='name'){ av = (av||'').toLowerCase(); bv = (bv||'').toLowerCase(); }
+    if(av<bv) return -1*dir; if(av>bv) return 1*dir; return 0;
+  }) : defaultRows;
   const top = [...s.entries].sort((a,b)=>b.score-a.score)[0];
   const isMvp = r=> r.rank ? String(r.rank).toUpperCase()==='MVP' : (top && top.score>0 && r.name===top.name && r.score===top.score);
+  const sortArrow = key => sessionSort.key===key ? (sessionSort.dir==='asc'?' \u25B2':' \u25BC') : '';
 
   // Absent is tracked across every record for this SAME DATE, not just this
   // one session — otherwise a Discord Check-In save (which only contains
@@ -1781,7 +1879,16 @@ function renderSessionBody(id){
       <span class="status-line" id="date-status-${id}" style="margin:0;"></span>
     </div>
     <table class="responsive">
-      <thead><tr><th>Rank</th><th>Name</th><th class="num">Tablets</th><th class="num">Monsters</th><th class="num">Kills</th><th class="num">Assists</th><th class="num">Deaths</th><th class="num">Score</th></tr></thead>
+      <thead><tr>
+        <th class="sortable" data-sort-session="__reset" title="Reset to original order">Rank${sessionSort.key===null?' \u25BC':''}</th>
+        <th class="sortable" data-sort-session="name">Name${sortArrow('name')}</th>
+        <th class="num sortable" data-sort-session="tablets">Tablets${sortArrow('tablets')}</th>
+        <th class="num sortable" data-sort-session="monsters">Monsters${sortArrow('monsters')}</th>
+        <th class="num sortable" data-sort-session="kills">Kills${sortArrow('kills')}</th>
+        <th class="num sortable" data-sort-session="assists">Assists${sortArrow('assists')}</th>
+        <th class="num sortable" data-sort-session="deaths">Deaths${sortArrow('deaths')}</th>
+        <th class="num sortable" data-sort-session="score">Score${sortArrow('score')}</th>
+      </tr></thead>
       <tbody>${rows.map(r=>`
         <tr>
           <td data-label="Rank">${isMvp(r)?'<span class="mvp-seal">&#9733;</span>MVP':escapeHtml(r.rank||'—')}</td>
@@ -1815,6 +1922,13 @@ function renderSessionBody(id){
     const card = buildSessionExportCard(s);
     await exportCardAsImage(card, `${(s.event_name||'session').replace(/[^a-z0-9]+/gi,'-')}-${s.date||''}.png`, statusEl);
   });
+  body.querySelectorAll('[data-sort-session]').forEach(th=>th.addEventListener('click', ()=>{
+    const key = th.dataset.sortSession;
+    if(key==='__reset'){ sessionSort = {key:null, dir:'desc'}; }
+    else if(sessionSort.key===key){ sessionSort.dir = sessionSort.dir==='asc'?'desc':'asc'; }
+    else{ sessionSort = {key, dir: key==='name'?'asc':'desc'}; }
+    renderSessionBody(id);
+  }));
   body.querySelector('[data-save-date]').addEventListener('click', async ()=>{
     const newDate = $('edit-date-'+id).value;
     if(!newDate){
@@ -2149,15 +2263,22 @@ function renderFullRosterTab(){
         <th class="sortable" data-sort-roster="mmid">UID${arrow('mmid')}</th>
         <th class="sortable" data-sort-roster="name">Name${arrow('name')}</th>
         <th class="sortable" data-sort-roster="job">Job${arrow('job')}</th>
+        <th class="sortable" data-sort-roster="party_role">Role${arrow('party_role')}</th>
         ${isAdmin() ? '<th></th>' : ''}
       </tr></thead>
       <tbody>${sorted.map(m=>`
-        <tr class="${frSelected.has(m.id)?'is-selected':''}">
+        <tr class="${frSelected.has(m.id)?'is-selected':''} ${m.status==='inactive'?'is-inactive-member':''}">
           ${isAdmin() ? `<td data-label=""><input type="checkbox" class="fr-check" data-fr-check="${m.id}" ${frSelected.has(m.id)?'checked':''}></td>` : ''}
           <td data-label="UID"><input type="text" class="roster-mmid-input" data-fr-field="mmid" data-fr-id="${m.id}" value="${escapeHtml(m.mmid||'')}" placeholder="UID"></td>
           <td data-label="Name"><input type="text" class="roster-name-input" data-fr-field="name" data-fr-id="${m.id}" value="${escapeHtml(m.name)}" placeholder="Name"></td>
           <td data-label="Job"><div class="job-cell">${jobIconSvg(m.job)}<select class="roster-job-select" data-fr-field="job" data-fr-id="${m.id}"></select></div></td>
-          ${isAdmin() ? `<td data-label=""><button class="row-del" data-fr-remove="${m.id}" title="Delete this member">✕</button></td>` : ''}
+          <td data-label="Role"><input type="text" class="roster-role-input" data-fr-field="party_role" data-fr-id="${m.id}" value="${escapeHtml(m.party_role||'')}" placeholder="e.g. Main Healer"></td>
+          ${isAdmin() ? `<td data-label="" style="gap:6px;">
+            ${m.status==='inactive'
+              ? `<button class="chip left-guild-badge" data-fr-toggle-status="${m.id}" data-new-status="active" title="Reactivate this member">Left Guild \u2014 Reactivate</button>`
+              : `<button class="btn ghost small" data-fr-toggle-status="${m.id}" data-new-status="inactive" title="Mark as no longer in the guild">Mark Left</button>`}
+            <button class="row-del" data-fr-remove="${m.id}" title="Delete this member">✕</button>
+          </td>` : ''}
         </tr>
       `).join('')}</tbody>
     </table>` : `<div class="empty-state">${fullRosterJobFilter.size ? `No members with ${[...fullRosterJobFilter].map(escapeHtml).join(', ')}.` : 'No members added yet.'}</div>`}
@@ -2169,8 +2290,8 @@ function renderFullRosterTab(){
           const renamed = c.new_name && c.new_name !== c.old_name;
           const rejobbed = c.new_job && c.new_job !== c.old_job;
           return `<div style="padding:9px 0; border-bottom:1px solid var(--line); font-size:13px;">
-            ${renamed ? `<strong>${escapeHtml(c.old_name)}</strong> renamed to <strong style="color:var(--cyan);">${escapeHtml(c.new_name)}</strong>` : `<strong>${escapeHtml(c.old_name)}</strong>`}
-            ${rejobbed ? ` — job changed to <strong style="color:var(--gold);">${escapeHtml(c.new_job)}</strong>` : ''}
+            ${renamed ? `<strong>${escapeHtml(c.old_name)}</strong> \u2192 <strong style="color:var(--cyan);">${escapeHtml(c.new_name)}</strong>` : `<strong>${escapeHtml(c.old_name)}</strong>`}
+            ${rejobbed ? ` — job: <strong>${escapeHtml(c.old_job||'none set')}</strong> \u2192 <strong style="color:var(--gold);">${escapeHtml(c.new_job)}</strong>` : ''}
             <span style="color:var(--ink-faint); margin-left:8px;">${new Date(c.changed_at).toLocaleString()}</span>
           </div>`;
         }).join('') : '<div style="font-size:13px;color:var(--ink-soft);">No changes logged yet.</div>'}
@@ -2244,6 +2365,7 @@ function renderFullRosterTab(){
     if(!name) return;
     const { error } = await sb.from('roster_members').insert({guild_id:guildId, mmid, name, job});
     if(error){ setStatus("Couldn't add — name may already exist.", 'error'); return; }
+    await logActivity('Added roster member', name);
     $('fr-mmid').value=''; $('fr-name').value='';
     await loadRoster(); renderStatStrip(); renderFullRosterTab();
     setStatus('Member added.', 'ok');
@@ -2262,6 +2384,7 @@ function renderFullRosterTab(){
     if(rows.length){
       const { error } = await sb.from('roster_members').insert(rows);
       if(error) setStatus("Some rows couldn't be added (duplicate names?).", 'error');
+      await logActivity('Added roster members', rows.map(r=>r.name).join(', '));
       await loadRoster(); renderStatStrip(); renderFullRosterTab();
       setStatus('Added members.', 'ok');
     }
@@ -2275,6 +2398,20 @@ function renderFullRosterTab(){
     if(member) await clearMemberFromLineups(member.name);
     await loadRoster(); renderStatStrip(); renderFullRosterTab();
     setStatus('Member deleted.', 'ok');
+  }));
+  document.querySelectorAll('[data-fr-toggle-status]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    if(!isAdmin()) return;
+    const id = btn.dataset.frToggleStatus, newStatus = btn.dataset.newStatus;
+    const member = roster.find(m=>m.id===id);
+    if(!member) return;
+    if(newStatus==='inactive'){
+      if(!confirm(`Mark ${member.name} as no longer in the guild? They'll be kept for history, but removed from party selection and cleared from any party they're currently placed in.`)) return;
+    }
+    await sb.from('roster_members').update({ status: newStatus }).eq('id', id);
+    await logActivity(newStatus==='inactive' ? 'Marked member as left the guild' : 'Reactivated member', member.name);
+    if(newStatus==='inactive') await clearMemberFromLineups(member.name);
+    await loadRoster(); renderStatStrip(); renderFullRosterTab();
+    setStatus(newStatus==='inactive' ? `${member.name} marked as left the guild.` : `${member.name} reactivated.`, 'ok');
   }));
   document.querySelectorAll('[data-fr-field]').forEach(el=>{
     el.addEventListener('change', async ()=>{
@@ -2297,17 +2434,20 @@ function renderFullRosterTab(){
           return;
         }
         if(m) m.name = newName;
+        await logActivity('Renamed roster member', `${oldName} \u2192 ${newName}`);
         await syncNameAcrossSessions(oldName, newName);
         await syncNameAcrossLineups(oldName, newName);
         setStatus('Member renamed — synced across sessions and lineups.', 'ok');
         return;
       }
+      const oldValue = m ? m[field] : null;
       await sb.from('roster_members').update({[field]: el.value}).eq('id', id);
       if(m) m[field] = el.value;
       if(field==='job'){
         const cell = el.closest('.job-cell');
         if(cell){ const oldIcon=cell.querySelector('.job-icon'); if(oldIcon) oldIcon.remove(); cell.insertAdjacentHTML('afterbegin', jobIconSvg(el.value)); }
         if(m) await syncJobAcrossLineups(m.name, el.value);
+        await logActivity('Changed roster member job', `${m?m.name:id}: ${oldValue||'none set'} \u2192 ${el.value}`);
       }
     });
   });
@@ -2399,12 +2539,137 @@ function renderAttendanceTab(){
 function placedCount(teams){
   return (teams||[]).reduce((s,t)=>s+t.parties.reduce((s2,p)=>s2+p.slots.filter(x=>x.name).length,0),0);
 }
+function renderItemDistTab(){
+  const allDates = getAllWarDates();
+  const eligible = itemDistDate ? getAttendeesForDate(itemDistDate) : [];
+  $('itemdist-content').innerHTML = `
+    <h2 class="section-title">Item Distribution</h2>
+    <p class="section-hint">Divide auction items fairly among everyone who attended a specific war day — pulled from Discord Log and session records. Spread evenly first, so everyone gets a turn before anyone gets a second item.</p>
+
+    <div class="field-row">
+      <div style="flex:1 1 240px;">
+        <label for="itemdist-date">War Date</label>
+        <select id="itemdist-date">
+          <option value="">\u2014 Select a date \u2014</option>
+          ${allDates.map(d=>`<option value="${d}" ${itemDistDate===d?'selected':''}>${d}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <p style="margin:6px 0 22px; font-size:13px; color:var(--ink-soft);">
+      ${itemDistDate ? `${eligible.length} eligible attendee${eligible.length===1?'':'s'} for ${escapeHtml(itemDistDate)}${eligible.length ? ': '+eligible.map(escapeHtml).join(', ') : ' \u2014 no attendance found for this date.'}` : "Pick a date to see who's eligible."}
+    </p>
+
+    <label style="display:block; margin-bottom:8px;">Items to Distribute</label>
+    <div id="itemdist-items">
+      ${itemDistItems.map((it,i)=>`
+        <div class="field-row" style="margin-bottom:8px;">
+          <div style="flex:3;"><input type="text" placeholder="Item name" data-item-field="name" data-item-idx="${i}" value="${escapeHtml(it.name)}"></div>
+          <div style="flex:1;"><input type="number" min="1" placeholder="Qty" data-item-field="qty" data-item-idx="${i}" value="${escapeHtml(String(it.qty))}"></div>
+          <div style="flex:0 0 auto; display:flex; align-items:center;"><button class="row-del" data-remove-item="${i}" title="Remove this item">\u2715</button></div>
+        </div>
+      `).join('')}
+    </div>
+    <button class="btn ghost small" id="add-item-row-btn">+ Add Item</button>
+
+    <div style="margin-top:22px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <button class="btn gold" id="generate-dist-btn">Generate Distribution</button>
+      ${itemDistResult ? `<button class="btn ghost small" id="reroll-dist-btn">Reroll</button><button class="btn ghost small" id="export-dist-btn">Export as Image</button>` : ''}
+      <span class="status-line" id="itemdist-status" style="margin:0;"></span>
+    </div>
+
+    <div id="itemdist-results" style="margin-top:24px;">
+      ${itemDistResult ? renderDistPagesHtml(itemDistResult.pages) : ''}
+    </div>
+  `;
+  wireItemDistTab(eligible);
+}
+function renderDistPagesHtml(pages){
+  if(pages.length===0) return '<div class="empty-state">No items distributed yet.</div>';
+  return pages.map((page,pi)=>`
+    <div class="dash-panel" style="margin-bottom:14px;">
+      <h3>Page ${pi+1}</h3>
+      <table class="responsive">
+        <thead><tr><th>Line</th><th>Item</th><th>Player</th></tr></thead>
+        <tbody>
+          ${page.map((a,li)=>`<tr><td data-label="Line">${li+1}</td><td data-label="Item">${escapeHtml(a.item)}</td><td data-label="Player"><strong style="color:var(--cyan);">${escapeHtml(a.player)}</strong></td></tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `).join('');
+}
+function buildItemDistExportCard(){
+  return `
+    <div style="width:640px; padding:28px; background:#13151a; font-family:'Inter',sans-serif; color:#eceef2;">
+      <div style="font-size:22px; font-weight:800;">Item Distribution</div>
+      <div style="font-size:13px; color:#8b93a1; margin:4px 0 20px;">${escapeHtml(itemDistDate)}</div>
+      ${itemDistResult.pages.map((page,pi)=>`
+        <div style="font-size:13px; font-weight:700; color:#4a78c9; margin:16px 0 8px;">Page ${pi+1}</div>
+        <table style="width:100%; border-collapse:collapse; font-size:13px; font-family:'Inter',sans-serif; margin-bottom:8px;">
+          ${page.map((a,li)=>`<tr style="border-bottom:1px solid #22242b;">
+            <td style="padding:7px 4px; color:#575e6b; width:24px;">${li+1}</td>
+            <td style="padding:7px 4px;">${escapeHtml(a.item)}</td>
+            <td style="padding:7px 4px; text-align:right; font-weight:700; color:#5b8def;">${escapeHtml(a.player)}</td>
+          </tr>`).join('')}
+        </table>
+      `).join('')}
+      <div style="margin-top:12px; font-size:10.5px; color:#575e6b;">Guild War Log</div>
+    </div>
+  `;
+}
+function wireItemDistTab(eligible){
+  $('itemdist-date').addEventListener('change', e=>{
+    itemDistDate = e.target.value;
+    itemDistResult = null;
+    renderItemDistTab();
+  });
+  document.querySelectorAll('[data-item-field]').forEach(inp=>inp.addEventListener('input', e=>{
+    const idx = +e.target.dataset.itemIdx, field = e.target.dataset.itemField;
+    itemDistItems[idx][field] = e.target.value;
+  }));
+  document.querySelectorAll('[data-remove-item]').forEach(btn=>btn.addEventListener('click', ()=>{
+    itemDistItems.splice(+btn.dataset.removeItem,1);
+    if(itemDistItems.length===0) itemDistItems.push({name:'',qty:1});
+    renderItemDistTab();
+  }));
+  $('add-item-row-btn').addEventListener('click', ()=>{
+    itemDistItems.push({name:'', qty:1});
+    renderItemDistTab();
+  });
+  $('generate-dist-btn').addEventListener('click', ()=>{
+    const statusEl = $('itemdist-status');
+    if(!itemDistDate){ statusEl.className='status-line error'; statusEl.textContent='Pick a war date first.'; return; }
+    if(eligible.length===0){ statusEl.className='status-line error'; statusEl.textContent='No eligible attendees found for that date.'; return; }
+    const validItems = itemDistItems.filter(it=>it.name && parseInt(it.qty,10)>0);
+    if(validItems.length===0){ statusEl.className='status-line error'; statusEl.textContent='Add at least one item with a quantity.'; return; }
+    itemDistResult = generateDistribution(validItems, eligible);
+    renderItemDistTab();
+    const freshStatus = $('itemdist-status');
+    if(freshStatus){ freshStatus.className='status-line ok'; freshStatus.textContent=`Distributed ${itemDistResult.assignments.length} item(s) across ${eligible.length} people.`; }
+  });
+  const rerollBtn = $('reroll-dist-btn');
+  if(rerollBtn) rerollBtn.addEventListener('click', ()=>{
+    const validItems = itemDistItems.filter(it=>it.name && parseInt(it.qty,10)>0);
+    itemDistResult = generateDistribution(validItems, eligible);
+    renderItemDistTab();
+  });
+  const exportBtn = $('export-dist-btn');
+  if(exportBtn) exportBtn.addEventListener('click', async ()=>{
+    const statusEl = $('itemdist-status');
+    const card = buildItemDistExportCard();
+    await exportCardAsImage(card, `item-distribution-${itemDistDate}.png`, statusEl);
+  });
+}
 function renderLineupsList(){
   $('lineups-list').innerHTML = lineups.length ? lineups.map(l=>`
     <div class="lineup-card">
       <div>
-        <div class="lineup-title"><a data-open-lineup="${l.id}">${escapeHtml(l.name)}</a> — ${l.date||''}</div>
-        <div class="lineup-meta">${[l.map_name, l.opposing_guild?('vs '+l.opposing_guild):null].filter(Boolean).join(' · ')}</div>
+        <div class="lineup-title">
+          <a class="lineup-title-link" data-open-lineup="${l.id}">
+            ${l.event_type ? `<span class="event-type-badge${l.event_type==='Guild Overrun'?' overrun':''}">${escapeHtml(l.event_type)}</span>` : ''}
+            <span class="lineup-title-text">${escapeHtml(l.name)}${(l.date && l.name && l.name.includes(l.date)) ? '' : ' — '+(l.date||'')}</span>
+          </a>
+        </div>
+        <div class="lineup-meta">${[l.map_name, l.opposing_guild?('vs '+l.opposing_guild):null, (l.event_type==='Guild Overrun' && (l.opponents||[]).filter(o=>o&&o.name).length)?`${(l.opponents||[]).filter(o=>o&&o.name).length}/7 opponents set`:null].filter(Boolean).join(' · ')}</div>
       </div>
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <span class="lineup-meta">${placedCount(l.teams)} placed</span>
@@ -2435,12 +2700,17 @@ function renderLineupsList(){
 async function duplicateLineup(id){
   const original = lineups.find(l=>l.id===id);
   if(!original) return;
+  const newDate = todayStr();
+  const newName = computeLineupName({ event_type: original.event_type, date: newDate, opposing_guild: original.opposing_guild });
   const { data, error } = await sb.from('party_lineups').insert({
     guild_id: guildId,
-    name: `${original.name} (Copy)`,
-    date: todayStr(),
+    name: newName,
+    date: newDate,
+    event_type: original.event_type,
     map_name: original.map_name,
     opposing_guild: original.opposing_guild,
+    opponents: JSON.parse(JSON.stringify(original.opponents||[])),
+    notes: original.notes,
     teams: JSON.parse(JSON.stringify(original.teams)),
   }).select('id').single();
   if(error){ setStatus("Couldn't duplicate lineup.", 'error'); return; }
@@ -2587,6 +2857,43 @@ function partyReportHeader(label, key){
   const arrow = active ? (partyReportSort.dir==='desc' ? ' \u25BC' : ' \u25B2') : '';
   return `<th data-sort-key="${key}" style="cursor:pointer;user-select:none;${active?'color:var(--gold);':''}">${label}${arrow}</th>`;
 }
+// Per-team job counts for whoever's currently assigned — generic by
+// team name, so it works correctly no matter what the teams are called
+// (Elite/Sub by default, but officers can rename them).
+function computeJobSummary(l){
+  return l.teams.map(team=>{
+    const counts = {};
+    let total = 0;
+    team.parties.forEach(p=>p.slots.forEach(s=>{
+      if(s.name){
+        const job = (roster.find(m=>m.name===s.name)||{}).job || s.job || 'No Job Set';
+        counts[job] = (counts[job]||0)+1;
+        total++;
+      }
+    }));
+    const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+    return { teamName: team.name, sorted, total };
+  });
+}
+function tplJobSummary(l){
+  const summary = computeJobSummary(l);
+  const hasAny = summary.some(t=>t.total>0);
+  return `<details class="hud-panel" style="margin-bottom:20px;">
+    <summary style="cursor:pointer;font-weight:700;color:var(--cyan-dim);">Job Summary</summary>
+    ${!hasAny ? `<p class="section-hint" style="margin-top:10px;">No one is assigned yet.</p>` : `
+    <div style="display:flex; gap:24px; flex-wrap:wrap; margin-top:12px;">
+      ${summary.map(team=>`
+        <div style="flex:1 1 220px; min-width:200px;">
+          <h4 style="margin:0 0 8px;font-size:13px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;">${escapeHtml(team.teamName)} (${team.total})</h4>
+          ${team.sorted.length ? team.sorted.map(([job,count])=>`
+            <div class="lb-row">${jobIconSvg(job)}<span class="lb-name">${escapeHtml(job)}</span><span class="lb-value">${count}</span></div>
+          `).join('') : '<div style="font-size:13px;color:var(--ink-soft);">No one assigned.</div>'}
+        </div>
+      `).join('')}
+    </div>
+    `}
+  </details>`;
+}
 function tplPartyReport(l){
   const day = getSessionDays().find(d=>d.date===l.date);
   if(!day){
@@ -2721,7 +3028,7 @@ function renderEditor(){
   const l = currentLineup;
   const counts = countByName();
   const assignedNames = new Set(Object.keys(counts));
-  const unassigned = roster.filter(m=>!assignedNames.has(m.name)).map(m=>m.name).sort();
+  const unassigned = roster.filter(m=>!assignedNames.has(m.name) && m.status!=='inactive').map(m=>m.name).sort();
   const crossBooked = findCrossLineupBookings();
   const bookedHere = [...crossBooked].filter(n=>assignedNames.has(n));
 
@@ -2730,12 +3037,42 @@ function renderEditor(){
       <div style="flex:1 1 320px;">
         <button class="btn ghost small" id="back-btn" style="margin-bottom:14px;">&larr; All Lineups</button>
         <div class="field-row">
-          <div style="flex:2 1 220px;"><label>Lineup Name</label><input type="text" id="f-name" value="${escapeHtml(l.name)}"></div>
+          <div style="flex:1 1 200px;"><label>Event Type</label>
+            <select id="f-event-type">
+              <option value="">\u2014 Select \u2014</option>
+              ${EVENT_TYPES.map(t=>`<option value="${escapeHtml(t)}" ${l.event_type===t?'selected':''}>${escapeHtml(t)}</option>`).join('')}
+            </select>
+          </div>
           <div style="flex:1 1 140px;"><label>Date</label><input type="date" id="f-date" value="${l.date||''}"></div>
         </div>
         <div class="field-row">
-          <div><label>Map Name</label><input type="text" id="f-map" placeholder="e.g. Prontera Castle" value="${escapeHtml(l.map_name||'')}"></div>
-          <div><label>Opposing Guild</label><input type="text" id="f-opp" placeholder="Enemy guild name" value="${escapeHtml(l.opposing_guild||'')}"></div>
+          <div><label>${EVENT_MAP_CONFIG[l.event_type] ? EVENT_MAP_CONFIG[l.event_type].label : 'Map'}</label>
+            ${EVENT_MAP_CONFIG[l.event_type] ? `
+              <select id="f-map">
+                <option value="">\u2014 Select \u2014</option>
+                ${EVENT_MAP_CONFIG[l.event_type].options.map(opt=>`<option value="${escapeHtml(opt)}" ${l.map_name===opt?'selected':''}>${escapeHtml(opt)}</option>`).join('')}
+              </select>
+            ` : `<input type="text" id="f-map" placeholder="e.g. Prontera Castle" value="${escapeHtml(l.map_name||'')}">`}
+          </div>
+          ${l.event_type === 'Guild Overrun' ? '' : `<div><label>Opposing Guild</label><input type="text" id="f-opp" placeholder="Enemy guild name" value="${escapeHtml(l.opposing_guild||'')}"></div>`}
+        </div>
+        ${l.event_type === 'Guild Overrun' ? `
+        <div style="margin-top:4px;">
+          <label>Opponents (7)</label>
+          <div id="overrun-opponents" style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">
+            ${Array.from({length:7}, (_,i)=>{
+              const o = (l.opponents && l.opponents[i]) || {name:'', server:''};
+              return `<div style="display:flex; gap:8px; align-items:center;">
+                <span style="flex:0 0 18px; color:var(--ink-faint); font-size:12px;">${i+1}</span>
+                <input type="text" data-opponent-idx="${i}" data-opponent-field="name" placeholder="Guild name" value="${escapeHtml(o.name||'')}" style="flex:2;">
+                <input type="text" data-opponent-idx="${i}" data-opponent-field="server" placeholder="Server" value="${escapeHtml(o.server||'')}" style="flex:1;">
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+        ` : ''}
+        <div class="field-row">
+          <div style="flex:1 1 100%;"><label>Guild Notes</label><textarea id="f-notes" rows="2" placeholder="Any notes for this event…">${escapeHtml(l.notes||'')}</textarea></div>
         </div>
       </div>
       <div style="text-align:right;">
@@ -2754,6 +3091,7 @@ function renderEditor(){
     ${tplVisits()}
     ${tplAbsences()}
     ${tplPartyReport(l)}
+    ${tplJobSummary(l)}
     ${l.teams.map((team,ti)=>tplTeam(team,ti,crossBooked)).join('')}
     <button class="btn gold small" id="add-team-btn" style="margin-bottom:20px;">+ Add Team</button>
     <h3 class="section-title" style="font-size:14px;">Unassigned (${unassigned.length})</h3>
@@ -2762,10 +3100,31 @@ function renderEditor(){
 
   $('back-btn').addEventListener('click', backToList);
   wireAbsenceButtons();
-  $('f-name').addEventListener('input', e=>{ currentLineup.name = e.target.value; scheduleSave(); });
-  $('f-date').addEventListener('change', e=>{ currentLineup.date = e.target.value; scheduleSave(); });
-  $('f-map').addEventListener('input', e=>{ currentLineup.map_name = e.target.value; scheduleSave(); });
-  $('f-opp').addEventListener('input', e=>{ currentLineup.opposing_guild = e.target.value; scheduleSave(); });
+  $('f-event-type').addEventListener('change', e=>{
+    currentLineup.event_type = e.target.value || null;
+    currentLineup.name = computeLineupName(currentLineup);
+    scheduleSave(); renderEditor();
+  });
+  $('f-date').addEventListener('change', e=>{
+    currentLineup.date = e.target.value;
+    currentLineup.name = computeLineupName(currentLineup);
+    scheduleSave();
+  });
+  $('f-map').addEventListener('change', e=>{ currentLineup.map_name = e.target.value; scheduleSave(); });
+  const oppInput = $('f-opp');
+  if(oppInput) oppInput.addEventListener('input', e=>{
+    currentLineup.opposing_guild = e.target.value;
+    currentLineup.name = computeLineupName(currentLineup);
+    scheduleSave();
+  });
+  document.querySelectorAll('[data-opponent-idx]').forEach(input=>input.addEventListener('input', e=>{
+    const idx = +e.target.dataset.opponentIdx, field = e.target.dataset.opponentField;
+    const opponents = Array.from({length:7}, (_,i)=>(currentLineup.opponents && currentLineup.opponents[i]) || {name:'',server:''});
+    opponents[idx] = { ...opponents[idx], [field]: e.target.value };
+    currentLineup.opponents = opponents;
+    scheduleSave();
+  }));
+  $('f-notes').addEventListener('input', e=>{ currentLineup.notes = e.target.value; scheduleSave(); });
   $('copy-share-btn').addEventListener('click', ()=>{
     const url = `${location.origin}${location.pathname.replace('index.html','')}view.html?slug=${currentLineup.share_slug}`;
     navigator.clipboard.writeText(url);
@@ -2887,11 +3246,14 @@ function tplParty(party, ti, pi, crossBooked){
         const isDup = slot.name && counts[slot.name] > 1;
         const isCrossBooked = slot.name && !isDup && crossBooked.has(slot.name);
         const liveJob = slot.name ? ((roster.find(m=>m.name===slot.name)||{}).job || slot.job || '') : '';
-        const label = slot.name ? `${slot.name}${liveJob?' — '+liveJob:''}` : '— empty —';
+        const liveRole = slot.name ? ((roster.find(m=>m.name===slot.name)||{}).party_role || '') : '';
+        const labelHtml = slot.name
+          ? `${escapeHtml(slot.name)}${liveJob?' — '+escapeHtml(liveJob):''}${liveRole?' <span class="slot-role-text">('+escapeHtml(liveRole)+')</span>':''}`
+          : '\u2014 empty \u2014';
         const cls = isDup ? 'dup-slot' : (isCrossBooked ? 'cross-booked-slot' : '');
         const title = isDup ? 'Duplicated within this lineup' : (isCrossBooked ? 'Also assigned in another lineup for this same date' : '');
         return `<button class="slot-btn ${cls}" data-slot="${ti}-${pi}-${si}" ${title?`title="${title}"`:''}>
-          <span class="slot-btn-label">${jobIconSvg(liveJob)}<span class="slot-label-text">${escapeHtml(label)}</span></span>
+          <span class="slot-btn-label">${jobIconSvg(liveJob)}<span class="slot-label-text">${labelHtml}</span></span>
           <span style="color:var(--ink-soft); font-size:11px;">&#9662;</span>
         </button>`;
       }).join('')}
@@ -2920,7 +3282,7 @@ function renderPickerOptions(){
   const search = $('assign-search').value.trim().toLowerCase();
   const counts = countByName();
 
-  let list = roster.slice();
+  let list = roster.filter(m=>m.status!=='inactive');
   if(jobFilter) list = list.filter(m=>(m.job||'')===jobFilter);
   if(search) list = list.filter(m=>m.name.toLowerCase().includes(search));
   const absentNames = new Set(currentLineupAbsences.filter(a=>a.absent_date===(currentLineup.date||'')).map(a=>a.member_name));
@@ -2934,7 +3296,7 @@ function renderPickerOptions(){
   const rows = list.map(m=>`
     <div class="assign-option ${m.name===currentVal?'is-selected':''}" data-pick="${escapeHtml(m.name)}">
       <span>${escapeHtml(m.name)}</span>
-      <span class="assign-option-job">${jobIconSvg(m.job)}${escapeHtml(m.job||'')}</span>
+      <span class="assign-option-job">${jobIconSvg(m.job)}${escapeHtml(m.job||'')}${m.party_role?' <span class="slot-role-text">'+escapeHtml(m.party_role)+'</span>':''}</span>
     </div>
   `).join('');
   $('assign-options').innerHTML = emptyRow + (rows || '<div style="padding:20px;text-align:center;color:var(--ink-soft);font-size:13px;">No matches</div>');
