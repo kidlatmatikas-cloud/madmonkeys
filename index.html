@@ -544,7 +544,8 @@ let discordAttendees = []; // [{ discordName, matchedName, alreadyRecorded }]
 let discordRole = ''; // 'Elite' | 'Sub' — which scoreboard this Discord screenshot should cross-check against
 let discordAttendanceLog = []; // loaded from the discord_attendance table — the persistent, browsable log
 let profileChangeLog = []; // loaded from the profile_changes table
-let itemDistDate = '';
+let itemDistPoolSize = 40;
+let itemDistLabel = '';
 let itemDistItems = [{name:'', qty:1, mode:'auto'}];
 let itemDistResult = null; // {assignments, pages} once generated, else null
 let activityLog = []; // loaded from the activity_log table
@@ -975,17 +976,8 @@ function getSessionDays(){
   });
 }
 /* ========================= Item Distribution ========================= */
-function getAllWarDates(){
-  const dates = new Set();
-  discordAttendanceLog.forEach(r=>{ if(r.date) dates.add(r.date); });
-  sessions.forEach(s=>{ if(s.date) dates.add(s.date); });
-  return [...dates].sort((a,b)=>b.localeCompare(a));
-}
-function getAttendeesForDate(date){
-  const names = new Set();
-  discordAttendanceLog.forEach(r=>{ if(r.date===date) names.add(r.member_name); });
-  sessions.forEach(s=>{ if(s.date===date) (s.entries||[]).forEach(e=>names.add(e.name)); });
-  return [...names].sort();
+function getItemDistPool(size){
+  return roster.filter(m=>m.status!=='inactive').map(m=>m.name).sort().slice(0, size);
 }
 // Distribution modes, per item:
 // 'auto'   — round-robin across the eligible list, in alphabetical order.
@@ -2563,23 +2555,24 @@ function placedCount(teams){
   return (teams||[]).reduce((s,t)=>s+t.parties.reduce((s2,p)=>s2+p.slots.filter(x=>x.name).length,0),0);
 }
 function renderItemDistTab(){
-  const allDates = getAllWarDates();
-  const eligible = itemDistDate ? getAttendeesForDate(itemDistDate) : [];
+  const activeRosterCount = roster.filter(m=>m.status!=='inactive').length;
+  const eligible = getItemDistPool(itemDistPoolSize);
   $('itemdist-content').innerHTML = `
     <h2 class="section-title">Item Distribution</h2>
-    <p class="section-hint">Divide auction items among everyone who attended a specific war day, in alphabetical order — pulled from Discord Log and session records. Mark an item as "You Assign" to hand it out yourself instead, or "Free for All" to leave it unclaimed. Auto-distribute items share one continuous, non-resetting turn order across the whole batch.</p>
+    <p class="section-hint">Divide auction items among the first N members of your active roster, alphabetically. Mark an item as "You Assign" to hand it out yourself instead, or "Free for All" to leave it unclaimed. Auto-distribute items share one continuous, non-resetting turn order across the whole batch.</p>
 
     <div class="field-row">
-      <div style="flex:1 1 240px;">
-        <label for="itemdist-date">War Date</label>
-        <select id="itemdist-date">
-          <option value="">\u2014 Select a date \u2014</option>
-          ${allDates.map(d=>`<option value="${d}" ${itemDistDate===d?'selected':''}>${d}</option>`).join('')}
-        </select>
+      <div style="flex:1 1 200px;">
+        <label for="itemdist-pool-size">Number of Players (A\u2013Z)</label>
+        <input type="number" id="itemdist-pool-size" min="1" max="${activeRosterCount}" value="${itemDistPoolSize}">
+      </div>
+      <div style="flex:2 1 260px;">
+        <label for="itemdist-label">Batch Label (optional, for your own reference)</label>
+        <input type="text" id="itemdist-label" placeholder="e.g. Tuesday, Aug 4" value="${escapeHtml(itemDistLabel)}">
       </div>
     </div>
     <p style="margin:6px 0 22px; font-size:13px; color:var(--ink-soft);">
-      ${itemDistDate ? `${eligible.length} eligible attendee${eligible.length===1?'':'s'} for ${escapeHtml(itemDistDate)}, A\u2013Z${eligible.length ? ': '+eligible.map(escapeHtml).join(', ') : ' \u2014 no attendance found for this date.'}` : "Pick a date to see who's eligible."}
+      ${eligible.length} eligible player${eligible.length===1?'':'s'} out of ${activeRosterCount} active on the roster: ${eligible.map(escapeHtml).join(', ')}
     </p>
 
     <label style="display:block; margin-bottom:8px;">Items to Distribute</label>
@@ -2639,7 +2632,7 @@ function buildItemDistExportCard(){
   return `
     <div style="width:640px; padding:28px; background:#13151a; font-family:'Inter',sans-serif; color:#eceef2;">
       <div style="font-size:22px; font-weight:800;">Item Distribution</div>
-      <div style="font-size:13px; color:#8b93a1; margin:4px 0 20px;">${escapeHtml(itemDistDate)}</div>
+      <div style="font-size:13px; color:#8b93a1; margin:4px 0 20px;">${itemDistLabel ? escapeHtml(itemDistLabel) : `First ${itemDistPoolSize} players, A\u2013Z`}</div>
       ${itemDistResult.pages.map((page,pi)=>`
         <div style="font-size:13px; font-weight:700; color:#4a78c9; margin:16px 0 8px;">Page ${pi+1}</div>
         <table style="width:100%; border-collapse:collapse; font-size:13px; font-family:'Inter',sans-serif; margin-bottom:8px;">
@@ -2657,11 +2650,13 @@ function buildItemDistExportCard(){
   `;
 }
 function wireItemDistTab(eligible){
-  $('itemdist-date').addEventListener('change', e=>{
-    itemDistDate = e.target.value;
+  $('itemdist-pool-size').addEventListener('change', e=>{
+    const n = parseInt(e.target.value,10);
+    itemDistPoolSize = (n && n>0) ? n : 1;
     itemDistResult = null;
     renderItemDistTab();
   });
+  $('itemdist-label').addEventListener('input', e=>{ itemDistLabel = e.target.value; });
   document.querySelectorAll('[data-item-field]').forEach(inp=>inp.addEventListener('change', e=>{
     const idx = +e.target.dataset.itemIdx, field = e.target.dataset.itemField;
     itemDistItems[idx][field] = e.target.value;
@@ -2677,11 +2672,10 @@ function wireItemDistTab(eligible){
   });
   $('generate-dist-btn').addEventListener('click', ()=>{
     const statusEl = $('itemdist-status');
-    if(!itemDistDate){ statusEl.className='status-line error'; statusEl.textContent='Pick a war date first.'; return; }
     const validItems = itemDistItems.filter(it=>it.name && parseInt(it.qty,10)>0);
     if(validItems.length===0){ statusEl.className='status-line error'; statusEl.textContent='Add at least one item with a quantity.'; return; }
     const hasAutoItem = validItems.some(it=>(it.mode||'auto')==='auto');
-    if(hasAutoItem && eligible.length===0){ statusEl.className='status-line error'; statusEl.textContent='No eligible attendees found for that date.'; return; }
+    if(hasAutoItem && eligible.length===0){ statusEl.className='status-line error'; statusEl.textContent='No eligible players on the roster.'; return; }
     itemDistResult = generateDistribution(validItems, eligible);
     renderItemDistTab();
     const freshStatus = $('itemdist-status');
@@ -2691,7 +2685,8 @@ function wireItemDistTab(eligible){
   if(exportBtn) exportBtn.addEventListener('click', async ()=>{
     const statusEl = $('itemdist-status');
     const card = buildItemDistExportCard();
-    await exportCardAsImage(card, `item-distribution-${itemDistDate}.png`, statusEl);
+    const filenamePart = (itemDistLabel || 'batch').replace(/[^a-z0-9]+/gi,'-');
+    await exportCardAsImage(card, `item-distribution-${filenamePart}.png`, statusEl);
   });
 }
 function renderLineupsList(){
