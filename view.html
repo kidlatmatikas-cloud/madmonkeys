@@ -167,6 +167,14 @@ const JOB_ICONS = {
   Asura:'<rect x="5" y="9" width="14" height="11" rx="3"/><circle cx="8" cy="8.5" r="2"/><circle cx="12" cy="7.8" r="2.1"/><circle cx="16" cy="8.5" r="2"/><path d="M3.5 12a2.3 2.3 0 012.3-2.3h1.4v7.6H5.8A2.3 2.3 0 013.5 15V12z"/>'
 };
 const JOB_COLORS = { 'High Priest':'#ffd24d','High Wizard':'#a374ff',Paladin:'#4db8ff','Lord Knight':'#ff4444',Mastersmith:'#ff9838',Summoner:'#4dffa6',Sniper:'#a8e63d','Assasin Cross':'#e8305f',Stalker:'#c34dff',Biochemist:'#3dffc4',Rebellion:'#ff6b3d',Gypsy:'#ff5eb0',Minstrel:'#3ddbe6',Professor:'#5c7fff',Asura:'#ffb83d' };
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+// Same rule as the officer dashboard: once a war has happened, the job
+// shown is a historical record and shouldn't change if that person's job
+// gets updated later. Only today-or-later lineups show the live job.
+function effectiveJob(slot, lineupDate){
+  if(lineupDate && lineupDate < todayStr()) return slot.job || '';
+  return (guildRoster.find(m=>m.name===slot.name)||{}).job || slot.job || '';
+}
 function jobIconSvg(job){
   const inner = JOB_ICONS[job];
   if(!inner) return '';
@@ -794,7 +802,7 @@ async function render(){
               <div class="party-card">
                 <div class="party-card-head"><span>${escapeHtml(party.name)}</span></div>
                 ${party.slots.map(slot => {
-                  const liveJob = slot.name ? ((guildRoster.find(m=>m.name===slot.name)||{}).job || slot.job || '') : '';
+                  const liveJob = slot.name ? effectiveJob(slot, lineup.date) : '';
                   const liveRole = slot.name ? ((guildRoster.find(m=>m.name===slot.name)||{}).party_role || '') : '';
                   const nameJobHtml = slot.name
                     ? escapeHtml(slot.name) + (liveJob ? ' — '+escapeHtml(liveJob) : '')
