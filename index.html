@@ -2642,6 +2642,7 @@ function renderItemDistTab(){
 
     <div id="itemdist-results" style="margin-top:24px;">
       ${itemDistResult ? renderDistSummaryHtml(itemDistResult.assignments) : ''}
+      ${itemDistResult ? renderPlayerLookupHtml(itemDistResult.pages) : ''}
       ${itemDistResult ? `<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px;">${renderDistPagesHtml(itemDistResult.pages)}</div>` : ''}
     </div>
   `;
@@ -2652,17 +2653,53 @@ function renderItemDistTab(){
 // specific. Saves scrolling through every page to count up one person's
 // total by hand.
 function renderDistSummaryHtml(assignments){
-  const counts = {};
-  assignments.forEach(a=>{ if(a.mode==='auto') counts[a.player] = (counts[a.player]||0)+1; });
-  const entries = Object.entries(counts).sort((a,b)=>a[0].localeCompare(b[0]));
-  if(entries.length===0) return '';
+  const perPerson = {}; // name -> { itemLabel: count, ... }
+  assignments.forEach(a=>{
+    if(a.mode!=='auto') return;
+    if(!perPerson[a.player]) perPerson[a.player] = {};
+    const label = AUCTION_ITEM_ABBREVIATIONS[a.item] || a.item;
+    perPerson[a.player][label] = (perPerson[a.player][label]||0) + 1;
+  });
+  const names = Object.keys(perPerson).sort();
+  if(names.length===0) return '';
   return `
     <div class="hud-panel" style="margin-bottom:18px;">
       <h3 class="section-title" style="font-size:15px;">Distribution Summary</h3>
-      <p class="section-hint">Total pieces per player, across every auto-distributed item.</p>
-      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:6px 16px;">
-        ${entries.map(([name,count])=>`<div style="font-size:13.5px;"><strong>${escapeHtml(name)}</strong> = <span style="color:var(--cyan); font-weight:600;">${count} pc${count===1?'':'s'}</span></div>`).join('')}
+      <p class="section-hint">Pieces per player, broken down by item.</p>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:8px 16px;">
+        ${names.map(name=>{
+          const breakdown = Object.entries(perPerson[name]).map(([label,count])=>`${escapeHtml(label)} = <span style="color:var(--cyan); font-weight:600;">${count} pc${count===1?'':'s'}</span>`).join(', ');
+          return `<div style="font-size:13.5px;"><strong>${escapeHtml(name)}</strong>: ${breakdown}</div>`;
+        }).join('')}
       </div>
+    </div>
+  `;
+}
+function findPlayerLocations(pages, playerName){
+  const locations = [];
+  pages.forEach((page,pi)=>page.forEach((a,li)=>{
+    if(a.player === playerName) locations.push({ page: pi+1, line: li+1, item: AUCTION_ITEM_ABBREVIATIONS[a.item] || a.item });
+  }));
+  return locations;
+}
+function renderPlayerLookupHtml(pages){
+  const names = new Set();
+  pages.forEach(page=>page.forEach(a=>{
+    if(a.mode==='free') return;
+    if(a.mode==='manual' && a.player.startsWith('\u2014')) return;
+    names.add(a.player);
+  }));
+  const sortedNames = [...names].sort();
+  if(sortedNames.length===0) return '';
+  return `
+    <div class="hud-panel" style="margin-bottom:18px;">
+      <h3 class="section-title" style="font-size:15px;">Find a Player's Items</h3>
+      <label for="itemdist-player-lookup">Player Name</label>
+      <select id="itemdist-player-lookup" style="max-width:320px;">
+        <option value="">\u2014 Select a player \u2014</option>
+        ${sortedNames.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')}
+      </select>
+      <div id="itemdist-lookup-result" style="margin-top:12px;"></div>
     </div>
   `;
 }
@@ -2729,6 +2766,16 @@ function wireItemDistTab(eligible){
     renderItemDistTab();
   });
   $('itemdist-label').addEventListener('input', e=>{ itemDistLabel = e.target.value; });
+  const lookupSel = $('itemdist-player-lookup');
+  if(lookupSel) lookupSel.addEventListener('change', e=>{
+    const resultEl = $('itemdist-lookup-result');
+    const name = e.target.value;
+    if(!name){ resultEl.innerHTML = ''; return; }
+    const locations = findPlayerLocations(itemDistResult.pages, name);
+    resultEl.innerHTML = locations.length
+      ? `<div style="display:flex; flex-wrap:wrap; gap:8px;">${locations.map(loc=>`<span class="chip">Page ${loc.page}, Line ${loc.line} \u2014 ${escapeHtml(loc.item)}</span>`).join('')}</div>`
+      : '<p style="color:var(--ink-soft); font-size:13px; margin:0;">No items found for this player.</p>';
+  });
   document.querySelectorAll('[data-item-field]').forEach(inp=>inp.addEventListener('change', e=>{
     const idx = +e.target.dataset.itemIdx, field = e.target.dataset.itemField;
     itemDistItems[idx][field] = e.target.value;
