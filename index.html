@@ -991,7 +991,6 @@ function getItemDistPool(size){
 function generateDistribution(items, eligibleNames){
   const poolSize = eligibleNames.length;
   const assignments = [];
-  let personCursor = 0; // continuous across auto items — advances only by the remainder each item leaves behind
   items.forEach(it=>{
     const qty = parseInt(it.qty,10);
     if(!it.name || !qty || qty<1) return;
@@ -1010,7 +1009,8 @@ function generateDistribution(items, eligibleNames){
     // auto: give each person their FULL share of this item on consecutive
     // lines before moving to the next person — not one unit per person
     // per lap, which scatters the same person's items across far-apart
-    // pages.
+    // pages. Every auto item restarts from the first eligible player
+    // (A–Z) — it does not continue from where a previous item left off.
     if(poolSize === 0){
       for(let i=0;i<qty;i++) assignments.push({ item: it.name, player: '\u2014 no eligible members \u2014', mode });
       return;
@@ -1018,11 +1018,10 @@ function generateDistribution(items, eligibleNames){
     const fullLaps = Math.floor(qty / poolSize);
     const remainder = qty % poolSize;
     for(let i=0;i<poolSize;i++){
-      const person = eligibleNames[(personCursor + i) % poolSize];
+      const person = eligibleNames[i];
       const unitsForPerson = fullLaps + (i < remainder ? 1 : 0);
       for(let u=0;u<unitsForPerson;u++) assignments.push({ item: it.name, player: person, mode });
     }
-    personCursor = (personCursor + remainder) % poolSize;
   });
   const pages = [];
   for(let i=0;i<assignments.length;i+=4) pages.push(assignments.slice(i,i+4));
@@ -2669,9 +2668,12 @@ function renderDistSummaryHtml(assignments){
 }
 function renderDistPagesHtml(pages){
   if(pages.length===0) return '<div class="empty-state">No items distributed yet.</div>';
-  return pages.map((page,pi)=>`
+  return pages.map((page,pi)=>{
+    const itemsOnPage = [...new Set(page.map(a=>a.item))];
+    const itemLabelText = itemsOnPage.map(it=>AUCTION_ITEM_ABBREVIATIONS[it]||it).join(' + ');
+    return `
     <div class="dash-panel">
-      <h3>Page ${pi+1}</h3>
+      <h3>Page ${pi+1}<span class="chip" style="margin-left:8px; padding:2px 9px; font-size:10.5px; vertical-align:middle;">${escapeHtml(itemLabelText)}</span></h3>
       <table class="responsive">
         <thead><tr><th>Line</th><th>Item</th><th>Player</th></tr></thead>
         <tbody>
@@ -2683,7 +2685,7 @@ function renderDistPagesHtml(pages){
         </tbody>
       </table>
     </div>
-  `).join('');
+  `;}).join('');
 }
 function buildItemDistExportCard(){
   return `
@@ -2700,8 +2702,11 @@ function buildItemDistExportCard(){
           ${entries.map(([name,count])=>`<div>${escapeHtml(name)} = <strong style="color:#5b8def;">${count} pc${count===1?'':'s'}</strong></div>`).join('')}
         </div>`;
       })()}
-      ${itemDistResult.pages.map((page,pi)=>`
-        <div style="font-size:13px; font-weight:700; color:#4a78c9; margin:16px 0 8px;">Page ${pi+1}</div>
+      ${itemDistResult.pages.map((page,pi)=>{
+        const itemsOnPage = [...new Set(page.map(a=>a.item))];
+        const itemLabelText = itemsOnPage.map(it=>AUCTION_ITEM_ABBREVIATIONS[it]||it).join(' + ');
+        return `
+        <div style="font-size:13px; font-weight:700; color:#4a78c9; margin:16px 0 8px;">Page ${pi+1} <span style="color:#8b93a1; font-weight:500; font-size:11px;">\u2014 ${escapeHtml(itemLabelText)}</span></div>
         <table style="width:100%; border-collapse:collapse; font-size:13px; font-family:'Inter',sans-serif; margin-bottom:8px;">
           ${page.map((a,li)=>{
             const color = a.mode==='manual' ? '#dc9a3d' : a.mode==='free' ? '#8b93a1' : '#5b8def';
@@ -2711,8 +2716,7 @@ function buildItemDistExportCard(){
             <td style="padding:7px 4px;">${escapeHtml(itemLabel)}</td>
             <td style="padding:7px 4px; text-align:right; font-weight:700; color:${color};">${escapeHtml(a.player)}</td>
           </tr>`;}).join('')}
-        </table>
-      `).join('')}
+        </table>`;}).join('')}
       <div style="margin-top:12px; font-size:10.5px; color:#575e6b;">Guild War Log</div>
     </div>
   `;
