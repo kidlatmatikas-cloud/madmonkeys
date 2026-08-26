@@ -443,6 +443,7 @@ const EVENT_MAP_CONFIG = {
   'Guild League': { label: 'Map', options: ['Stellar Clash', 'Vale of Clash', 'Vigrid of Avenge'] },
   'Guild Overrun': { label: 'Guild Category', options: ['Pinnacle Group'] },
 };
+const AUCTION_ITEM_OPTIONS = ['Puppet Fragment Opt. Album III', 'Illusion Fragment Redeem Pack', 'Light-Dark Opt. Chest', 'Time-Space Opt. Chest'];
 // Auto-generates the lineup's display name from its event fields, since
 // there's no manual name field — keeps every other feature that reads
 // lineup.name (Discord posts, Party Report, Activity Log, share page)
@@ -544,7 +545,7 @@ let discordRole = ''; // 'Elite' | 'Sub' — which scoreboard this Discord scree
 let discordAttendanceLog = []; // loaded from the discord_attendance table — the persistent, browsable log
 let profileChangeLog = []; // loaded from the profile_changes table
 let itemDistDate = '';
-let itemDistItems = [{name:'', qty:1}];
+let itemDistItems = [{name:'', qty:1, mode:'auto'}];
 let itemDistResult = null; // {assignments, pages} once generated, else null
 let activityLog = []; // loaded from the activity_log table
 let eliteCapacity = 40, subCapacity = 40; // war-slot caps, not tied to specific roster names
@@ -986,27 +987,31 @@ function getAttendeesForDate(date){
   sessions.forEach(s=>{ if(s.date===date) (s.entries||[]).forEach(e=>names.add(e.name)); });
   return [...names].sort();
 }
-function shuffleArray(arr){
-  const a = [...arr];
-  for(let i=a.length-1;i>0;i--){
-    const j = Math.floor(Math.random()*(i+1));
-    [a[i],a[j]] = [a[j],a[i]];
-  }
-  return a;
-}
-// Fair round-robin: shuffle the eligible pool ONCE, then cycle through it
-// repeatedly — so everyone gets a turn before anyone gets a second item,
-// no matter how many items there are.
+// Distribution modes, per item:
+// 'auto'   — round-robin across the eligible list, in alphabetical order.
+//            The cursor is CONTINUOUS across every auto item in the list —
+//            it does not reset per item, so fairness holds across the
+//            whole batch, not just within one item type.
+// 'manual' — the officer hands these out themselves; the tool just
+//            reserves the page/line slots and labels them accordingly.
+// 'free'   — first-come-first-served in-game; not assigned to anyone.
 function generateDistribution(items, eligibleNames){
-  const units = [];
+  const units = []; // { item, mode }
   items.forEach(it=>{
     const qty = parseInt(it.qty,10);
     if(!it.name || !qty || qty<1) return;
-    for(let i=0;i<qty;i++) units.push(it.name);
+    const mode = it.mode || 'auto';
+    for(let i=0;i<qty;i++) units.push({ item: it.name, mode });
   });
-  if(units.length===0 || eligibleNames.length===0) return { assignments:[], pages:[] };
-  const shuffled = shuffleArray(eligibleNames);
-  const assignments = units.map((itemName,i) => ({ item: itemName, player: shuffled[i % shuffled.length] }));
+  if(units.length===0) return { assignments:[], pages:[] };
+  let autoCursor = 0;
+  const assignments = units.map(u=>{
+    if(u.mode === 'manual') return { item: u.item, player: '\u2014 Officer picks \u2014', mode: u.mode };
+    if(u.mode === 'free') return { item: u.item, player: 'FREE FOR ALL', mode: u.mode };
+    const player = eligibleNames.length ? eligibleNames[autoCursor % eligibleNames.length] : '\u2014 no eligible members \u2014';
+    autoCursor++;
+    return { item: u.item, player, mode: u.mode };
+  });
   const pages = [];
   for(let i=0;i<assignments.length;i+=4) pages.push(assignments.slice(i,i+4));
   return { assignments, pages };
@@ -2562,7 +2567,7 @@ function renderItemDistTab(){
   const eligible = itemDistDate ? getAttendeesForDate(itemDistDate) : [];
   $('itemdist-content').innerHTML = `
     <h2 class="section-title">Item Distribution</h2>
-    <p class="section-hint">Divide auction items fairly among everyone who attended a specific war day — pulled from Discord Log and session records. Spread evenly first, so everyone gets a turn before anyone gets a second item.</p>
+    <p class="section-hint">Divide auction items among everyone who attended a specific war day, in alphabetical order — pulled from Discord Log and session records. Mark an item as "You Assign" to hand it out yourself instead, or "Free for All" to leave it unclaimed. Auto-distribute items share one continuous, non-resetting turn order across the whole batch.</p>
 
     <div class="field-row">
       <div style="flex:1 1 240px;">
@@ -2574,15 +2579,27 @@ function renderItemDistTab(){
       </div>
     </div>
     <p style="margin:6px 0 22px; font-size:13px; color:var(--ink-soft);">
-      ${itemDistDate ? `${eligible.length} eligible attendee${eligible.length===1?'':'s'} for ${escapeHtml(itemDistDate)}${eligible.length ? ': '+eligible.map(escapeHtml).join(', ') : ' \u2014 no attendance found for this date.'}` : "Pick a date to see who's eligible."}
+      ${itemDistDate ? `${eligible.length} eligible attendee${eligible.length===1?'':'s'} for ${escapeHtml(itemDistDate)}, A\u2013Z${eligible.length ? ': '+eligible.map(escapeHtml).join(', ') : ' \u2014 no attendance found for this date.'}` : "Pick a date to see who's eligible."}
     </p>
 
     <label style="display:block; margin-bottom:8px;">Items to Distribute</label>
     <div id="itemdist-items">
       ${itemDistItems.map((it,i)=>`
         <div class="field-row" style="margin-bottom:8px;">
-          <div style="flex:3;"><input type="text" placeholder="Item name" data-item-field="name" data-item-idx="${i}" value="${escapeHtml(it.name)}"></div>
+          <div style="flex:3;">
+            <select data-item-field="name" data-item-idx="${i}">
+              <option value="">\u2014 Select item \u2014</option>
+              ${AUCTION_ITEM_OPTIONS.map(opt=>`<option value="${escapeHtml(opt)}" ${it.name===opt?'selected':''}>${escapeHtml(opt)}</option>`).join('')}
+            </select>
+          </div>
           <div style="flex:1;"><input type="number" min="1" placeholder="Qty" data-item-field="qty" data-item-idx="${i}" value="${escapeHtml(String(it.qty))}"></div>
+          <div style="flex:1.6;">
+            <select data-item-field="mode" data-item-idx="${i}">
+              <option value="auto" ${it.mode==='auto'?'selected':''}>Auto-distribute</option>
+              <option value="manual" ${it.mode==='manual'?'selected':''}>You Assign</option>
+              <option value="free" ${it.mode==='free'?'selected':''}>Free for All</option>
+            </select>
+          </div>
           <div style="flex:0 0 auto; display:flex; align-items:center;"><button class="row-del" data-remove-item="${i}" title="Remove this item">\u2715</button></div>
         </div>
       `).join('')}
@@ -2591,7 +2608,7 @@ function renderItemDistTab(){
 
     <div style="margin-top:22px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
       <button class="btn gold" id="generate-dist-btn">Generate Distribution</button>
-      ${itemDistResult ? `<button class="btn ghost small" id="reroll-dist-btn">Reroll</button><button class="btn ghost small" id="export-dist-btn">Export as Image</button>` : ''}
+      ${itemDistResult ? `<button class="btn ghost small" id="export-dist-btn">Export as Image</button>` : ''}
       <span class="status-line" id="itemdist-status" style="margin:0;"></span>
     </div>
 
@@ -2609,7 +2626,10 @@ function renderDistPagesHtml(pages){
       <table class="responsive">
         <thead><tr><th>Line</th><th>Item</th><th>Player</th></tr></thead>
         <tbody>
-          ${page.map((a,li)=>`<tr><td data-label="Line">${li+1}</td><td data-label="Item">${escapeHtml(a.item)}</td><td data-label="Player"><strong style="color:var(--cyan);">${escapeHtml(a.player)}</strong></td></tr>`).join('')}
+          ${page.map((a,li)=>{
+            const style = a.mode==='manual' ? 'color:var(--gold);' : a.mode==='free' ? 'color:var(--ink-soft); font-style:italic;' : 'color:var(--cyan);';
+            return `<tr><td data-label="Line">${li+1}</td><td data-label="Item">${escapeHtml(a.item)}</td><td data-label="Player"><strong style="${style}">${escapeHtml(a.player)}</strong></td></tr>`;
+          }).join('')}
         </tbody>
       </table>
     </div>
@@ -2623,11 +2643,13 @@ function buildItemDistExportCard(){
       ${itemDistResult.pages.map((page,pi)=>`
         <div style="font-size:13px; font-weight:700; color:#4a78c9; margin:16px 0 8px;">Page ${pi+1}</div>
         <table style="width:100%; border-collapse:collapse; font-size:13px; font-family:'Inter',sans-serif; margin-bottom:8px;">
-          ${page.map((a,li)=>`<tr style="border-bottom:1px solid #22242b;">
+          ${page.map((a,li)=>{
+            const color = a.mode==='manual' ? '#dc9a3d' : a.mode==='free' ? '#8b93a1' : '#5b8def';
+            return `<tr style="border-bottom:1px solid #22242b;">
             <td style="padding:7px 4px; color:#575e6b; width:24px;">${li+1}</td>
             <td style="padding:7px 4px;">${escapeHtml(a.item)}</td>
-            <td style="padding:7px 4px; text-align:right; font-weight:700; color:#5b8def;">${escapeHtml(a.player)}</td>
-          </tr>`).join('')}
+            <td style="padding:7px 4px; text-align:right; font-weight:700; color:${color};">${escapeHtml(a.player)}</td>
+          </tr>`;}).join('')}
         </table>
       `).join('')}
       <div style="margin-top:12px; font-size:10.5px; color:#575e6b;">Guild War Log</div>
@@ -2640,35 +2662,30 @@ function wireItemDistTab(eligible){
     itemDistResult = null;
     renderItemDistTab();
   });
-  document.querySelectorAll('[data-item-field]').forEach(inp=>inp.addEventListener('input', e=>{
+  document.querySelectorAll('[data-item-field]').forEach(inp=>inp.addEventListener('change', e=>{
     const idx = +e.target.dataset.itemIdx, field = e.target.dataset.itemField;
     itemDistItems[idx][field] = e.target.value;
   }));
   document.querySelectorAll('[data-remove-item]').forEach(btn=>btn.addEventListener('click', ()=>{
     itemDistItems.splice(+btn.dataset.removeItem,1);
-    if(itemDistItems.length===0) itemDistItems.push({name:'',qty:1});
+    if(itemDistItems.length===0) itemDistItems.push({name:'',qty:1,mode:'auto'});
     renderItemDistTab();
   }));
   $('add-item-row-btn').addEventListener('click', ()=>{
-    itemDistItems.push({name:'', qty:1});
+    itemDistItems.push({name:'', qty:1, mode:'auto'});
     renderItemDistTab();
   });
   $('generate-dist-btn').addEventListener('click', ()=>{
     const statusEl = $('itemdist-status');
     if(!itemDistDate){ statusEl.className='status-line error'; statusEl.textContent='Pick a war date first.'; return; }
-    if(eligible.length===0){ statusEl.className='status-line error'; statusEl.textContent='No eligible attendees found for that date.'; return; }
     const validItems = itemDistItems.filter(it=>it.name && parseInt(it.qty,10)>0);
     if(validItems.length===0){ statusEl.className='status-line error'; statusEl.textContent='Add at least one item with a quantity.'; return; }
+    const hasAutoItem = validItems.some(it=>(it.mode||'auto')==='auto');
+    if(hasAutoItem && eligible.length===0){ statusEl.className='status-line error'; statusEl.textContent='No eligible attendees found for that date.'; return; }
     itemDistResult = generateDistribution(validItems, eligible);
     renderItemDistTab();
     const freshStatus = $('itemdist-status');
-    if(freshStatus){ freshStatus.className='status-line ok'; freshStatus.textContent=`Distributed ${itemDistResult.assignments.length} item(s) across ${eligible.length} people.`; }
-  });
-  const rerollBtn = $('reroll-dist-btn');
-  if(rerollBtn) rerollBtn.addEventListener('click', ()=>{
-    const validItems = itemDistItems.filter(it=>it.name && parseInt(it.qty,10)>0);
-    itemDistResult = generateDistribution(validItems, eligible);
-    renderItemDistTab();
+    if(freshStatus){ freshStatus.className='status-line ok'; freshStatus.textContent=`Laid out ${itemDistResult.assignments.length} item(s) across ${itemDistResult.pages.length} page(s).`; }
   });
   const exportBtn = $('export-dist-btn');
   if(exportBtn) exportBtn.addEventListener('click', async ()=>{
