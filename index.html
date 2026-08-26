@@ -444,7 +444,7 @@ const EVENT_MAP_CONFIG = {
   'Guild Overrun': { label: 'Guild Category', options: ['Pinnacle Group'] },
 };
 const AUCTION_ITEM_OPTIONS = ['Puppet Fragment Opt. Album III', 'Illusion Fragment Redeem Pack', 'Light-Dark Opt. Chest', 'Time-Space Opt. Chest'];
-const AUCTION_ITEM_ABBREVIATIONS = { 'Light-Dark Opt. Chest': 'L&D', 'Time-Space Opt. Chest': 'T&S' };
+const AUCTION_ITEM_ABBREVIATIONS = { 'Puppet Fragment Opt. Album III': 'Puppet Frag.', 'Light-Dark Opt. Chest': 'L&D', 'Time-Space Opt. Chest': 'T&S' };
 // Auto-generates the lineup's display name from its event fields, since
 // there's no manual name field — keeps every other feature that reads
 // lineup.name (Discord posts, Party Report, Activity Log, share page)
@@ -547,7 +547,7 @@ let discordAttendanceLog = []; // loaded from the discord_attendance table — t
 let profileChangeLog = []; // loaded from the profile_changes table
 let itemDistPoolSize = 40;
 let itemDistLabel = '';
-let itemDistItems = [{name:'', qty:1, mode:'auto'}];
+let itemDistItems = [{name:'', qty:1, mode:'auto', manualPlayers:[]}];
 let itemDistResult = null; // {assignments, pages} once generated, else null
 let activityLog = []; // loaded from the activity_log table
 let eliteCapacity = 40, subCapacity = 40; // war-slot caps, not tied to specific roster names
@@ -997,7 +997,10 @@ function generateDistribution(items, eligibleNames){
     if(!it.name || !qty || qty<1) return;
     const mode = it.mode || 'auto';
     if(mode === 'manual'){
-      for(let i=0;i<qty;i++) assignments.push({ item: it.name, player: '\u2014 Officer picks \u2014', mode });
+      for(let i=0;i<qty;i++){
+        const picked = (it.manualPlayers||[])[i];
+        assignments.push({ item: it.name, player: picked || '\u2014 Not picked yet \u2014', mode });
+      }
       return;
     }
     if(mode === 'free'){
@@ -2573,6 +2576,7 @@ function placedCount(teams){
 }
 function renderItemDistTab(){
   const activeRosterCount = roster.filter(m=>m.status!=='inactive').length;
+  const rosterAlphaNames = roster.filter(m=>m.status!=='inactive').map(m=>m.name).sort();
   const eligible = getItemDistPool(itemDistPoolSize);
   $('itemdist-content').innerHTML = `
     <h2 class="section-title">Item Distribution</h2>
@@ -2594,7 +2598,9 @@ function renderItemDistTab(){
 
     <label style="display:block; margin-bottom:8px;">Items to Distribute</label>
     <div id="itemdist-items">
-      ${itemDistItems.map((it,i)=>`
+      ${itemDistItems.map((it,i)=>{
+        const qty = parseInt(it.qty,10)||0;
+        return `
         <div class="field-row" style="margin-bottom:8px;">
           <div style="flex:3;">
             <select data-item-field="name" data-item-idx="${i}">
@@ -2612,7 +2618,20 @@ function renderItemDistTab(){
           </div>
           <div style="flex:0 0 auto; display:flex; align-items:center;"><button class="row-del" data-remove-item="${i}" title="Remove this item">\u2715</button></div>
         </div>
-      `).join('')}
+        ${it.mode==='manual' && it.name && qty>0 ? `
+          <div style="margin:0 0 14px 4px; padding:10px 14px; border-left:2px solid var(--gold); display:flex; flex-wrap:wrap; gap:10px;">
+            ${Array.from({length:qty}, (_,u)=>`
+              <div style="flex:0 0 auto;">
+                <label style="font-size:11px; color:var(--ink-faint); display:block; margin-bottom:3px;">Unit ${u+1}</label>
+                <select data-manual-item-idx="${i}" data-manual-unit="${u}">
+                  <option value="">\u2014 Pick player \u2014</option>
+                  ${rosterAlphaNames.map(name=>`<option value="${escapeHtml(name)}" ${(it.manualPlayers||[])[u]===name?'selected':''}>${escapeHtml(name)}</option>`).join('')}
+                </select>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      `;}).join('')}
     </div>
     <button class="btn ghost small" id="add-item-row-btn">+ Add Item</button>
 
@@ -2709,6 +2728,12 @@ function wireItemDistTab(eligible){
   document.querySelectorAll('[data-item-field]').forEach(inp=>inp.addEventListener('change', e=>{
     const idx = +e.target.dataset.itemIdx, field = e.target.dataset.itemField;
     itemDistItems[idx][field] = e.target.value;
+    renderItemDistTab();
+  }));
+  document.querySelectorAll('[data-manual-item-idx]').forEach(sel=>sel.addEventListener('change', e=>{
+    const idx = +e.target.dataset.manualItemIdx, unit = +e.target.dataset.manualUnit;
+    if(!itemDistItems[idx].manualPlayers) itemDistItems[idx].manualPlayers = [];
+    itemDistItems[idx].manualPlayers[unit] = e.target.value;
   }));
   document.querySelectorAll('[data-remove-item]').forEach(btn=>btn.addEventListener('click', ()=>{
     itemDistItems.splice(+btn.dataset.removeItem,1);
