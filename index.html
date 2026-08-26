@@ -1037,7 +1037,7 @@ function computeRosterStats(){
   roster.forEach(m=>{ map[m.name]=blankMember(m.name); map[m.name].id=m.id; map[m.name].mmid=m.mmid||''; map[m.name].job=m.job||''; });
   const attendedDates = {}; // name -> Set of dates they appeared on
   const attendedDatesElite = {}, attendedDatesSub = {};
-  const scoreByDate = {}; // name -> { date: summed score for that day }
+  const scoreByDate = {}; // name -> { date: HIGHEST score recorded that day }
   sessions.forEach(s=>(s.entries||[]).forEach(r=>{
     if(!map[r.name]) map[r.name]=blankMember(r.name);
     const m=map[r.name];
@@ -1060,11 +1060,11 @@ function computeRosterStats(){
     }
     if(r.score>m.best) m.best=r.score;
     if(s.date){
-      // Same date recorded twice (e.g. Elite + Sub the same war day) counts
-      // as ONE day's combined score, not two separate contributions — same
-      // "one war day" principle already used for attendance and K/A/D.
+      // If someone appears twice on the same war day (e.g. an Elite entry
+      // AND a Sub entry), that's the same person's same day — count their
+      // HIGHER score for that day, not both added together.
       if(!scoreByDate[r.name]) scoreByDate[r.name] = {};
-      scoreByDate[r.name][s.date] = (scoreByDate[r.name][s.date]||0) + r.score;
+      scoreByDate[r.name][s.date] = Math.max(scoreByDate[r.name][s.date]||0, r.score);
     }
     if(!attendedDates[r.name]) attendedDates[r.name] = new Set();
     if(s.date) attendedDates[r.name].add(s.date);
