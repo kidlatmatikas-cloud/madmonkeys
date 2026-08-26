@@ -444,6 +444,7 @@ const EVENT_MAP_CONFIG = {
   'Guild Overrun': { label: 'Guild Category', options: ['Pinnacle Group'] },
 };
 const AUCTION_ITEM_OPTIONS = ['Puppet Fragment Opt. Album III', 'Illusion Fragment Redeem Pack', 'Light-Dark Opt. Chest', 'Time-Space Opt. Chest'];
+const AUCTION_ITEM_ABBREVIATIONS = { 'Light-Dark Opt. Chest': 'L&D', 'Time-Space Opt. Chest': 'T&S' };
 // Auto-generates the lineup's display name from its event fields, since
 // there's no manual name field — keeps every other feature that reads
 // lineup.name (Discord posts, Party Report, Activity Log, share page)
@@ -988,21 +989,37 @@ function getItemDistPool(size){
 //            reserves the page/line slots and labels them accordingly.
 // 'free'   — first-come-first-served in-game; not assigned to anyone.
 function generateDistribution(items, eligibleNames){
-  const units = []; // { item, mode }
+  const poolSize = eligibleNames.length;
+  const assignments = [];
+  let personCursor = 0; // continuous across auto items — advances only by the remainder each item leaves behind
   items.forEach(it=>{
     const qty = parseInt(it.qty,10);
     if(!it.name || !qty || qty<1) return;
     const mode = it.mode || 'auto';
-    for(let i=0;i<qty;i++) units.push({ item: it.name, mode });
-  });
-  if(units.length===0) return { assignments:[], pages:[] };
-  let autoCursor = 0;
-  const assignments = units.map(u=>{
-    if(u.mode === 'manual') return { item: u.item, player: '\u2014 Officer picks \u2014', mode: u.mode };
-    if(u.mode === 'free') return { item: u.item, player: 'FREE FOR ALL', mode: u.mode };
-    const player = eligibleNames.length ? eligibleNames[autoCursor % eligibleNames.length] : '\u2014 no eligible members \u2014';
-    autoCursor++;
-    return { item: u.item, player, mode: u.mode };
+    if(mode === 'manual'){
+      for(let i=0;i<qty;i++) assignments.push({ item: it.name, player: '\u2014 Officer picks \u2014', mode });
+      return;
+    }
+    if(mode === 'free'){
+      for(let i=0;i<qty;i++) assignments.push({ item: it.name, player: 'FREE FOR ALL', mode });
+      return;
+    }
+    // auto: give each person their FULL share of this item on consecutive
+    // lines before moving to the next person — not one unit per person
+    // per lap, which scatters the same person's items across far-apart
+    // pages.
+    if(poolSize === 0){
+      for(let i=0;i<qty;i++) assignments.push({ item: it.name, player: '\u2014 no eligible members \u2014', mode });
+      return;
+    }
+    const fullLaps = Math.floor(qty / poolSize);
+    const remainder = qty % poolSize;
+    for(let i=0;i<poolSize;i++){
+      const person = eligibleNames[(personCursor + i) % poolSize];
+      const unitsForPerson = fullLaps + (i < remainder ? 1 : 0);
+      for(let u=0;u<unitsForPerson;u++) assignments.push({ item: it.name, player: person, mode });
+    }
+    personCursor = (personCursor + remainder) % poolSize;
   });
   const pages = [];
   for(let i=0;i<assignments.length;i+=4) pages.push(assignments.slice(i,i+4));
@@ -2641,7 +2658,8 @@ function renderDistPagesHtml(pages){
         <tbody>
           ${page.map((a,li)=>{
             const style = a.mode==='manual' ? 'color:var(--gold);' : a.mode==='free' ? 'color:var(--ink-soft); font-style:italic;' : 'color:var(--cyan);';
-            return `<tr><td data-label="Line">${li+1}</td><td data-label="Item">${escapeHtml(a.item)}</td><td data-label="Player"><strong style="${style}">${escapeHtml(a.player)}</strong></td></tr>`;
+            const itemLabel = AUCTION_ITEM_ABBREVIATIONS[a.item] || a.item;
+            return `<tr><td data-label="Line">${li+1}</td><td data-label="Item" title="${escapeHtml(a.item)}">${escapeHtml(itemLabel)}</td><td data-label="Player"><strong style="${style}">${escapeHtml(a.player)}</strong></td></tr>`;
           }).join('')}
         </tbody>
       </table>
@@ -2668,9 +2686,10 @@ function buildItemDistExportCard(){
         <table style="width:100%; border-collapse:collapse; font-size:13px; font-family:'Inter',sans-serif; margin-bottom:8px;">
           ${page.map((a,li)=>{
             const color = a.mode==='manual' ? '#dc9a3d' : a.mode==='free' ? '#8b93a1' : '#5b8def';
+            const itemLabel = AUCTION_ITEM_ABBREVIATIONS[a.item] || a.item;
             return `<tr style="border-bottom:1px solid #22242b;">
             <td style="padding:7px 4px; color:#575e6b; width:24px;">${li+1}</td>
-            <td style="padding:7px 4px;">${escapeHtml(a.item)}</td>
+            <td style="padding:7px 4px;">${escapeHtml(itemLabel)}</td>
             <td style="padding:7px 4px; text-align:right; font-weight:700; color:${color};">${escapeHtml(a.player)}</td>
           </tr>`;}).join('')}
         </table>
