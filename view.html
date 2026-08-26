@@ -207,21 +207,27 @@ function computePersonalStats(name){
   // date, that's one war day, not two chances to "attend."
   const totalDays = new Set(guildSessions.map(s=>s.date).filter(Boolean)).size;
   const attendedDates = new Set();
-  let tablets=0, monsters=0, kills=0, assists=0, deaths=0, scoreSum=0, best=0, mvps=0;
+  const scoreByDate = {}; // date -> HIGHEST score recorded that date
+  let tablets=0, monsters=0, kills=0, assists=0, deaths=0, best=0, mvps=0;
   guildSessions.forEach(s=>{
     const entry = (s.entries||[]).find(e=>e.name===name);
     if(entry){
       if(s.date) attendedDates.add(s.date);
       tablets+=entry.tablets; monsters+=entry.monsters; kills+=entry.kills; assists+=entry.assists; deaths+=entry.deaths;
-      scoreSum+=entry.score; if(entry.score>best) best=entry.score;
+      if(entry.score>best) best=entry.score;
+      // If the same person appears twice on the same war day (e.g. an
+      // Elite entry AND a Sub entry), count their HIGHER score for that
+      // day, not both added together.
+      if(s.date) scoreByDate[s.date] = Math.max(scoreByDate[s.date]||0, entry.score);
       if(entry.rank && String(entry.rank).toUpperCase()==='MVP') mvps++;
     }
   });
   const attended = attendedDates.size;
+  const totalScore = Object.values(scoreByDate).reduce((a,b)=>a+b,0);
   return {
     totalSessions: totalDays, attended,
     attendance: totalDays ? (attended/totalDays*100) : 0,
-    avgScore: attended ? (scoreSum/attended) : 0,
+    avgScore: attended ? (totalScore/attended) : 0,
     best, tablets, monsters, kills, assists, deaths, mvps
   };
 }
@@ -234,21 +240,27 @@ function computePersonalStats(name){
 // Sub's (mislabeled) Tablets column.
 function computeGuildTopStats(){
   const map = {};
-  const ensure = name => { if(!map[name]) map[name] = { name, kills:0, assists:0, trueTablets:0, trueMonsterKills:0, scoreSum:0, attendedDates:new Set(), job:'' }; return map[name]; };
+  const ensure = name => { if(!map[name]) map[name] = { name, kills:0, assists:0, trueTablets:0, trueMonsterKills:0, scoreByDate:{}, attendedDates:new Set(), job:'' }; return map[name]; };
   guildSessions.forEach(s=>{
     (s.entries||[]).forEach(e=>{
       const m = ensure(e.name);
       m.kills += e.kills; m.assists += e.assists;
       if(s.role==='Elite'){ m.trueTablets += e.tablets; m.trueMonsterKills += e.monsters; }
       else if(s.role==='Sub'){ m.trueMonsterKills += e.tablets; }
-      m.scoreSum += e.score;
-      if(s.date) m.attendedDates.add(s.date);
+      if(s.date){
+        // Same person twice on the same war day (Elite + Sub entries) —
+        // count their HIGHER score for that day, not both added together.
+        m.scoreByDate[s.date] = Math.max(m.scoreByDate[s.date]||0, e.score);
+        m.attendedDates.add(s.date);
+      }
     });
   });
   Object.values(map).forEach(m=>{
     const rm = guildRoster.find(r=>r.name===m.name);
     m.job = rm ? rm.job : '';
-    m.avgScore = m.attendedDates.size ? Math.round(m.scoreSum/m.attendedDates.size) : 0;
+    const totalScore = Object.values(m.scoreByDate).reduce((a,b)=>a+b,0);
+    m.sessions = m.attendedDates.size;
+    m.avgScore = m.attendedDates.size ? Math.round(totalScore/m.attendedDates.size) : 0;
   });
   return Object.values(map);
 }
@@ -256,6 +268,8 @@ function renderTopScorersPanel(){
   const all = computeGuildTopStats();
   if(all.length===0) return '';
   const top = (key, filterPositive) => [...all].filter(m=>!filterPositive || m[key]>0).sort((a,b)=>b[key]-a[key]).slice(0,5);
+  const TOP_AVG_MIN_SESSIONS = 3; // filters out a single lucky war skewing the leaderboard
+  const topAvgScore = all.filter(m=>m.sessions>=TOP_AVG_MIN_SESSIONS).sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
   const lbRows = (list, key) => list.length
     ? list.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m[key]}</span></div>`).join('')
     : '<div class="empty-state" style="padding:14px 4px;">No data yet.</div>';
@@ -270,7 +284,7 @@ function renderTopScorersPanel(){
         <div class="dash-panel"><h3>Top Assists</h3>${lbRows(top('assists', true), 'assists')}</div>
         <div class="dash-panel"><h3>Top Tablets Taken</h3>${lbRows(top('trueTablets', true), 'trueTablets')}</div>
         <div class="dash-panel"><h3>Top Monster Kills</h3>${lbRows(top('trueMonsterKills', true), 'trueMonsterKills')}</div>
-        <div class="dash-panel"><h3>Top Average Score</h3>${lbRows(top('avgScore', true), 'avgScore')}</div>
+        <div class="dash-panel"><h3>Top Average Score</h3><div style="font-size:11px;color:var(--ink-faint);margin:-4px 0 10px;">Minimum ${TOP_AVG_MIN_SESSIONS} sessions to qualify</div>${topAvgScore.length ? lbRows(topAvgScore, 'avgScore') : '<div class="empty-state" style="padding:14px 4px;">No one has reached the minimum sessions yet.</div>'}</div>
       </div>
     </div>
   `;
