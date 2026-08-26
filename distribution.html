@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guild War Log — Item Distribution</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#13151a; --bg-panel:#1a1d24; --bg-panel-2:#15171d; --bg-elevated:#20232c;
+  --ink:#eceef2; --ink-soft:#8b93a1; --ink-faint:#575e6b;
+  --cyan:#5b8def; --cyan-dim:#4a78c9; --magenta:#e5535c; --green:#3ecf8e; --gold:#dc9a3d;
+  --line:rgba(255,255,255,.07); --line-strong:rgba(255,255,255,.13); --shadow:rgba(0,0,0,.28);
+}
+*{box-sizing:border-box;}
+body{margin:0;}
+html,body{
+  background:var(--bg);
+  color:var(--ink); font-family:'Inter',sans-serif; font-weight:400; font-size:15.5px; line-height:1.55; min-height:100vh;
+}
+.wrap{ max-width:900px; width:94%; margin:0 auto; padding:32px 0 70px; }
+.masthead{ padding-bottom:16px; margin-bottom:8px; border-bottom:1px solid var(--line-strong); }
+.masthead h1{ font-family:'Inter',sans-serif; font-weight:700; letter-spacing:-.01em; font-size:clamp(19px,2vw,26px); margin:0; }
+.masthead .sub{ font-size:13px; color:var(--ink-soft); letter-spacing:.1em; text-transform:uppercase; font-weight:600; }
+label{ font-size:12.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--ink-soft); display:block; margin-bottom:5px; font-weight:600; }
+select{
+  font-family:'Inter',sans-serif; font-weight:500; font-size:14.5px; color:var(--ink); background:var(--bg-panel-2);
+  border:1px solid var(--line); border-radius:7px; padding:9px 12px; width:100%; max-width:340px;
+}
+select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 0 0 3px rgba(91,141,239,.18); }
+.hud-panel{ position:relative; background:var(--bg-panel); border:1px solid var(--line-strong); border-radius:12px; padding:30px 32px; box-shadow:0 4px 20px var(--shadow); margin-top:20px; }
+.section-title{ font-family:'Inter',sans-serif; font-size:19px; font-weight:700; letter-spacing:-.01em; margin:0 0 8px; }
+.section-hint{ font-size:15.5px; color:var(--ink-soft); margin:0 0 18px; max-width:70ch; line-height:1.6; }
+.empty-state{ padding:30px 10px; text-align:center; color:var(--ink-soft); font-size:14.5px; }
+.chip{ display:inline-flex; align-items:center; gap:7px; background:var(--bg-panel-2); border:1px solid var(--line-strong); border-radius:20px; padding:7px 14px; margin:4px 5px 4px 0; font-size:14px; font-family:'Inter',sans-serif; font-weight:500; }
+table{ width:100%; border-collapse:collapse; margin-top:12px; }
+thead th{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; text-align:left; color:var(--ink-soft); border-bottom:1px solid var(--line-strong); padding:7px 6px; white-space:nowrap; }
+tbody td{ padding:7px 6px; border-bottom:1px solid var(--line); font-size:13.5px; vertical-align:middle; font-family:'Inter',sans-serif; font-variant-numeric:tabular-nums; }
+tbody tr:hover{ background:rgba(45,226,255,.04); }
+td.num, th.num{ text-align:right; }
+@media (max-width:700px){
+  table.responsive thead{ display:none; }
+  table.responsive, table.responsive tbody, table.responsive tr, table.responsive td{ display:block; width:100%; }
+  table.responsive tr{ border:1px solid var(--line); margin-bottom:8px; padding:6px 8px; }
+  table.responsive td{ display:flex; justify-content:space-between; align-items:center; border-bottom:none; padding:5px 2px; gap:8px; }
+  table.responsive td::before{ content:attr(data-label); font-size:10px; text-transform:uppercase; color:var(--ink-soft); font-weight:700; flex:0 0 auto; }
+  table.responsive td.num{ text-align:right; }
+}
+</style>
+</head>
+<body>
+<div class="wrap" id="content">
+  <div class="masthead">
+    <div class="sub">Loading\u2026</div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+const SUPABASE_URL = 'https://ydftjgrxhrbjmzzwstnr.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_1Uy0YLjaqqSgk52hS3Lm4Q_0zaxPv4x';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const content = document.getElementById('content');
+
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderSummary(assignments){
+  const perPerson = {};
+  const itemLabelsSet = new Set();
+  assignments.forEach(a=>{
+    if(a.mode!=='auto') return;
+    if(!perPerson[a.player]) perPerson[a.player] = {};
+    perPerson[a.player][a.item] = (perPerson[a.player][a.item]||0) + 1;
+    itemLabelsSet.add(a.item);
+  });
+  const names = Object.keys(perPerson).sort();
+  if(names.length===0) return '<div class="empty-state">No distribution recorded yet.</div>';
+  const itemLabels = [...itemLabelsSet].sort();
+  return `
+    <table class="responsive">
+      <thead><tr>
+        <th>Player</th>
+        ${itemLabels.map(l=>`<th class="num">${escapeHtml(l)}</th>`).join('')}
+        <th class="num">Total</th>
+      </tr></thead>
+      <tbody>
+        ${names.map(name=>{
+          const total = itemLabels.reduce((sum,l)=>sum+(perPerson[name][l]||0), 0);
+          return `<tr>
+            <td data-label="Player"><strong>${escapeHtml(name)}</strong></td>
+            ${itemLabels.map(l=>`<td data-label="${escapeHtml(l)}" class="num">${perPerson[name][l]||'\u2014'}</td>`).join('')}
+            <td data-label="Total" class="num"><strong style="color:var(--cyan);">${total}</strong></td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function findPlayerLocations(pages, playerName){
+  const locations = [];
+  pages.forEach((page,pi)=>page.forEach((a,li)=>{
+    if(a.player === playerName) locations.push({ page: pi+1, line: li+1, item: a.item });
+  }));
+  return locations;
+}
+
+function renderLookup(pages){
+  const names = new Set();
+  pages.forEach(page=>page.forEach(a=>{
+    if(a.mode==='free') return;
+    if(a.mode==='manual' && a.player.startsWith('\u2014')) return;
+    names.add(a.player);
+  }));
+  const sortedNames = [...names].sort();
+  return `
+    <label for="player-lookup">Find Your Name</label>
+    <select id="player-lookup">
+      <option value="">\u2014 Select your name \u2014</option>
+      ${sortedNames.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')}
+    </select>
+    <div id="lookup-result" style="margin-top:14px;"></div>
+  `;
+}
+
+async function render(){
+  const params = new URLSearchParams(location.search);
+  const slug = params.get('slug');
+  if(!slug){
+    content.innerHTML = `<div class="masthead"><h1>Item Distribution</h1></div><div class="hud-panel"><div class="empty-state">No link provided.</div></div>`;
+    return;
+  }
+  const { data: dist, error } = await sb.from('item_distributions').select('*, guild_settings(name)').eq('share_slug', slug).maybeSingle();
+  if(error || !dist){
+    content.innerHTML = `<div class="masthead"><h1>Item Distribution</h1></div><div class="hud-panel"><div class="empty-state">This link isn't valid — ask an officer for a fresh one.</div></div>`;
+    return;
+  }
+  if(dist.share_expires_at && new Date(dist.share_expires_at).getTime() < Date.now()){
+    content.innerHTML = `<div class="masthead"><h1>${escapeHtml(dist.guild_settings?.name || 'Guild')} // Item Distribution</h1></div><div class="hud-panel"><div class="empty-state">This link has expired (links last 24 hours). Ask an officer for a fresh one.</div></div>`;
+    return;
+  }
+  content.innerHTML = `
+    <div class="masthead">
+      <h1>${escapeHtml(dist.guild_settings?.name || 'Guild')} // Item Distribution</h1>
+      <div class="sub">${dist.label ? escapeHtml(dist.label) : 'Auction results'}</div>
+    </div>
+    <div class="hud-panel">
+      <h2 class="section-title">Distribution Summary</h2>
+      <p class="section-hint">Pieces per player, broken down by item.</p>
+      ${renderSummary(dist.assignments||[])}
+    </div>
+    <div class="hud-panel">
+      <h2 class="section-title">Find Your Items</h2>
+      <p class="section-hint">Pick your name to see exactly which page and line your items are on.</p>
+      ${renderLookup(dist.pages||[])}
+    </div>
+  `;
+  const lookupSel = document.getElementById('player-lookup');
+  if(lookupSel) lookupSel.addEventListener('change', e=>{
+    const resultEl = document.getElementById('lookup-result');
+    const name = e.target.value;
+    if(!name){ resultEl.innerHTML = ''; return; }
+    const locations = findPlayerLocations(dist.pages||[], name);
+    resultEl.innerHTML = locations.length
+      ? locations.map(loc=>`<span class="chip">Page ${loc.page}, Line ${loc.line} \u2014 ${escapeHtml(loc.item)}</span>`).join('')
+      : '<p style="color:var(--ink-soft); font-size:13px; margin:0;">No items found for this name.</p>';
+  });
+}
+render();
+</script>
+</body>
+</html>
