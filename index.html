@@ -2606,15 +2606,35 @@ function renderItemDistTab(){
     </div>
 
     <div id="itemdist-results" style="margin-top:24px;">
-      ${itemDistResult ? renderDistPagesHtml(itemDistResult.pages) : ''}
+      ${itemDistResult ? renderDistSummaryHtml(itemDistResult.assignments) : ''}
+      ${itemDistResult ? `<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px;">${renderDistPagesHtml(itemDistResult.pages)}</div>` : ''}
     </div>
   `;
   wireItemDistTab(eligible);
 }
+// A quick "who got how many" overview — auto-distributed items only,
+// since "Officer picks" and "FREE FOR ALL" aren't assigned to anyone
+// specific. Saves scrolling through every page to count up one person's
+// total by hand.
+function renderDistSummaryHtml(assignments){
+  const counts = {};
+  assignments.forEach(a=>{ if(a.mode==='auto') counts[a.player] = (counts[a.player]||0)+1; });
+  const entries = Object.entries(counts).sort((a,b)=>a[0].localeCompare(b[0]));
+  if(entries.length===0) return '';
+  return `
+    <div class="hud-panel" style="margin-bottom:18px;">
+      <h3 class="section-title" style="font-size:15px;">Distribution Summary</h3>
+      <p class="section-hint">Total pieces per player, across every auto-distributed item.</p>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:6px 16px;">
+        ${entries.map(([name,count])=>`<div style="font-size:13.5px;"><strong>${escapeHtml(name)}</strong> = <span style="color:var(--cyan); font-weight:600;">${count} pc${count===1?'':'s'}</span></div>`).join('')}
+      </div>
+    </div>
+  `;
+}
 function renderDistPagesHtml(pages){
   if(pages.length===0) return '<div class="empty-state">No items distributed yet.</div>';
   return pages.map((page,pi)=>`
-    <div class="dash-panel" style="margin-bottom:14px;">
+    <div class="dash-panel">
       <h3>Page ${pi+1}</h3>
       <table class="responsive">
         <thead><tr><th>Line</th><th>Item</th><th>Player</th></tr></thead>
@@ -2633,6 +2653,16 @@ function buildItemDistExportCard(){
     <div style="width:640px; padding:28px; background:#13151a; font-family:'Inter',sans-serif; color:#eceef2;">
       <div style="font-size:22px; font-weight:800;">Item Distribution</div>
       <div style="font-size:13px; color:#8b93a1; margin:4px 0 20px;">${itemDistLabel ? escapeHtml(itemDistLabel) : `First ${itemDistPoolSize} players, A\u2013Z`}</div>
+      ${(()=>{
+        const counts = {};
+        itemDistResult.assignments.forEach(a=>{ if(a.mode==='auto') counts[a.player] = (counts[a.player]||0)+1; });
+        const entries = Object.entries(counts).sort((a,b)=>a[0].localeCompare(b[0]));
+        if(entries.length===0) return '';
+        return `<div style="font-size:13px; font-weight:700; color:#4a78c9; margin:0 0 8px;">Distribution Summary</div>
+        <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:4px 16px; margin-bottom:20px; font-size:12.5px;">
+          ${entries.map(([name,count])=>`<div>${escapeHtml(name)} = <strong style="color:#5b8def;">${count} pc${count===1?'':'s'}</strong></div>`).join('')}
+        </div>`;
+      })()}
       ${itemDistResult.pages.map((page,pi)=>`
         <div style="font-size:13px; font-weight:700; color:#4a78c9; margin:16px 0 8px;">Page ${pi+1}</div>
         <table style="width:100%; border-collapse:collapse; font-size:13px; font-family:'Inter',sans-serif; margin-bottom:8px;">
