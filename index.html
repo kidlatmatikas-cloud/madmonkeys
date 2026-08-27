@@ -2641,9 +2641,9 @@ function renderItemDistTab(){
     </div>
 
     <div id="itemdist-results" style="margin-top:24px;">
-      ${itemDistResult ? renderDistSummaryHtml(itemDistResult.assignments) : ''}
       ${itemDistResult ? renderPlayerLookupHtml(itemDistResult.pages) : ''}
       ${itemDistResult ? `<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px;">${renderDistPagesHtml(itemDistResult.pages)}</div>` : ''}
+      ${itemDistResult ? renderDistSummaryHtml(itemDistResult.assignments) : ''}
     </div>
   `;
   wireItemDistTab(eligible);
