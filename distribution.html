@@ -19,7 +19,7 @@ html,body{
   background:var(--bg);
   color:var(--ink); font-family:'Inter',sans-serif; font-weight:400; font-size:15.5px; line-height:1.55; min-height:100vh;
 }
-.wrap{ max-width:900px; width:94%; margin:0 auto; padding:32px 0 70px; }
+.wrap{ max-width:1900px; width:94%; margin:0 auto; padding:32px 0 70px; }
 .masthead{ padding-bottom:16px; margin-bottom:8px; border-bottom:1px solid var(--line-strong); }
 .masthead h1{ font-family:'Inter',sans-serif; font-weight:700; letter-spacing:-.01em; font-size:clamp(19px,2vw,26px); margin:0; }
 .masthead .sub{ font-size:13px; color:var(--ink-soft); letter-spacing:.1em; text-transform:uppercase; font-weight:600; }
@@ -34,6 +34,8 @@ select:focus{ outline:none; border-color:var(--cyan); box-shadow:0 0 0 3px rgba(
 .section-hint{ font-size:15.5px; color:var(--ink-soft); margin:0 0 18px; max-width:70ch; line-height:1.6; }
 .empty-state{ padding:30px 10px; text-align:center; color:var(--ink-soft); font-size:14.5px; }
 .chip{ display:inline-flex; align-items:center; gap:7px; background:var(--bg-panel-2); border:1px solid var(--line-strong); border-radius:20px; padding:7px 14px; margin:4px 5px 4px 0; font-size:14px; font-family:'Inter',sans-serif; font-weight:500; }
+.dash-panel{ position:relative; border:1px solid var(--line); background:rgba(255,255,255,.015); border-radius:9px; padding:16px; }
+.dash-panel h3{ font-family:'Inter',sans-serif; font-size:12px; margin:0 0 12px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.05em; font-weight:700; }
 table{ width:100%; border-collapse:collapse; margin-top:12px; }
 thead th{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; text-align:left; color:var(--ink-soft); border-bottom:1px solid var(--line-strong); padding:7px 6px; white-space:nowrap; }
 tbody td{ padding:7px 6px; border-bottom:1px solid var(--line); font-size:13.5px; vertical-align:middle; font-family:'Inter',sans-serif; font-variant-numeric:tabular-nums; }
@@ -125,6 +127,26 @@ function renderLookup(pages){
   `;
 }
 
+function renderPages(pages){
+  if(pages.length===0) return '<div class="empty-state">No items distributed yet.</div>';
+  return pages.map((page,pi)=>{
+    const itemsOnPage = [...new Set(page.map(a=>a.item))];
+    return `
+    <div class="dash-panel">
+      <h3>Page ${pi+1}<span class="chip" style="margin-left:8px; padding:2px 9px; font-size:10.5px; vertical-align:middle;">${escapeHtml(itemsOnPage.join(' + '))}</span></h3>
+      <table class="responsive">
+        <thead><tr><th>Line</th><th>Item</th><th>Player</th></tr></thead>
+        <tbody>
+          ${page.map((a,li)=>{
+            const style = a.mode==='manual' ? 'color:var(--gold);' : a.mode==='free' ? 'color:var(--ink-soft); font-style:italic;' : 'color:var(--cyan);';
+            return `<tr><td data-label="Line">${li+1}</td><td data-label="Item">${escapeHtml(a.item)}</td><td data-label="Player"><strong style="${style}">${escapeHtml(a.player)}</strong></td></tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;}).join('');
+}
+
 async function render(){
   const params = new URLSearchParams(location.search);
   const slug = params.get('slug');
@@ -150,6 +172,9 @@ async function render(){
       <h2 class="section-title">Find Your Items</h2>
       <p class="section-hint">Pick your name to see exactly which page and line your items are on.</p>
       ${renderLookup(dist.pages||[])}
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px; margin-top:20px;">
+      ${renderPages(dist.pages||[])}
     </div>
     <div class="hud-panel">
       <h2 class="section-title">Distribution Summary</h2>
