@@ -551,6 +551,7 @@ let itemDistLabel = '';
 let itemDistItems = [{name:'', qty:1, mode:'auto', manualPlayers:[]}];
 let itemDistResult = null; // {assignments, pages} once generated, else null
 let itemDistributions = []; // past shared distributions for this guild (history)
+let editingDistId = null; // id of the past distribution currently loaded for editing, else null
 let activityLog = []; // loaded from the activity_log table
 let eliteCapacity = 40, subCapacity = 40; // war-slot caps, not tied to specific roster names
 let draftEventName = 'WoE';
@@ -1013,6 +1014,24 @@ async function advanceBatchOffset(batchName, poolSize){
 // 'manual' — the officer hands these out themselves; the tool just
 //            reserves the page/line slots and labels them accordingly.
 // 'free'   — first-come-first-served in-game; not assigned to anyone.
+// Rebuilds an editable item list from a saved distribution's `items` column
+// when present, or — for distributions saved before that column existed —
+// reconstructs a best-effort item list straight from the stored
+// assignments (item, player, mode), so old rows stay editable too.
+function reconstructItemsFromAssignments(assignments){
+  const order = [];
+  const map = {};
+  (assignments||[]).forEach(a=>{
+    if(!map[a.item]){ map[a.item] = { name:a.item, qty:0, mode:a.mode||'auto', manualPlayers:[] }; order.push(a.item); }
+    const it = map[a.item];
+    it.qty++;
+    if(it.mode==='manual'){
+      it.manualPlayers.push(a.player && !String(a.player).startsWith('\u2014') ? a.player : '');
+    }
+  });
+  return order.map(name=>map[name]);
+}
+
 function generateDistribution(items, eligibleNames, startOffset){
   startOffset = startOffset || 0;
   const poolSize = eligibleNames.length;
@@ -2667,9 +2686,15 @@ function renderItemDistTab(){
     </div>
     <button class="btn ghost small" id="add-item-row-btn">+ Add Item</button>
 
+    ${editingDistId ? `
+    <div style="margin-top:18px; padding:10px 16px; border:1px solid var(--gold); background:rgba(220,154,61,.08); border-radius:8px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <span style="font-size:13px; color:var(--gold);">Editing a saved distribution — changes save to this one, not a new one.</span>
+      <button class="btn ghost small" id="itemdist-new-btn">+ New Distribution Instead</button>
+    </div>` : ''}
+
     <div style="margin-top:22px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
       <button class="btn gold" id="generate-dist-btn">Generate Distribution</button>
-      ${itemDistResult ? `<button class="btn ghost small" id="export-dist-btn">Export as Image</button><button class="btn gold small" id="itemdist-share-btn">Share with Members</button>` : ''}
+      ${itemDistResult ? `<button class="btn ghost small" id="export-dist-btn">Export as Image</button><button class="btn gold small" id="itemdist-share-btn">${editingDistId ? 'Save Changes' : 'Share with Members'}</button>` : ''}
       <span class="status-line" id="itemdist-status" style="margin:0;"></span>
     </div>
 
@@ -2693,11 +2718,12 @@ function renderItemDistHistoryHtml(){
   return itemDistributions.map(d=>`
     <div class="lineup-card">
       <div>
-        <div class="lineup-title"><a class="lineup-title-link" data-view-dist="${d.share_slug}"><span class="lineup-title-text">${escapeHtml(d.label || 'Untitled batch')}${d.event_date ? ' — '+escapeHtml(d.event_date) : ''}</span></a></div>
+        <div class="lineup-title"><a class="lineup-title-link" data-edit-dist="${d.id}"><span class="lineup-title-text">${escapeHtml(d.label || 'Untitled batch')}${d.event_date ? ' — '+escapeHtml(d.event_date) : ''}</span></a></div>
         <div class="lineup-meta">${(d.assignments||[]).length} item${(d.assignments||[]).length===1?'':'s'} · shared ${new Date(d.created_at).toLocaleString()}</div>
         ${linkStatusHtml(d)}
       </div>
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <button class="btn ghost small" data-edit-dist="${d.id}">Edit</button>
         <button class="btn ghost small" data-view-dist="${d.share_slug}">View →</button>
         <button class="btn ghost small" data-copy-dist-link="${d.share_slug}">Copy Share Link</button>
         <button class="btn ghost small" data-renew-dist-link="${d.id}">Renew Link (24h)</button>
@@ -2707,6 +2733,19 @@ function renderItemDistHistoryHtml(){
   `).join('');
 }
 function wireItemDistHistory(){
+  document.querySelectorAll('[data-edit-dist]').forEach(el=>el.addEventListener('click', ()=>{
+    const d = itemDistributions.find(x=>x.id===el.dataset.editDist);
+    if(!d) return;
+    editingDistId = d.id;
+    itemDistBatch = d.batch || '';
+    itemDistEventDate = d.event_date || '';
+    itemDistLabel = d.label || '';
+    itemDistItems = (d.items && d.items.length) ? JSON.parse(JSON.stringify(d.items)) : reconstructItemsFromAssignments(d.assignments);
+    itemDistResult = { assignments: d.assignments || [], pages: d.pages || [] };
+    renderItemDistTab();
+    setStatus(`Editing "${d.label || 'Untitled batch'}" — make changes, Generate again if needed, then Save Changes.`, 'ok');
+    $('itemdist-content').scrollIntoView({ behavior:'smooth', block:'start' });
+  }));
   document.querySelectorAll('[data-view-dist]').forEach(el=>el.addEventListener('click', ()=>{
     const url = `${location.origin}${location.pathname.replace('index.html','')}distribution.html?slug=${el.dataset.viewDist}`;
     window.open(url, '_blank');
@@ -2736,6 +2775,14 @@ function wireItemDistHistory(){
     await sb.from('item_distributions').delete().eq('id', id);
     await logActivity('Deleted item distribution', target ? `${target.label||'Untitled'} — ${target.event_date||''}` : id);
     itemDistributions = itemDistributions.filter(x=>x.id!==id);
+    if(editingDistId===id){
+      editingDistId = null;
+      itemDistBatch = ''; itemDistEventDate = ''; itemDistLabel = '';
+      itemDistItems = [{name:'', qty:1, mode:'auto', manualPlayers:[]}];
+      itemDistResult = null;
+      renderItemDistTab();
+      return;
+    }
     $('itemdist-history').innerHTML = renderItemDistHistoryHtml();
     wireItemDistHistory();
   }));
@@ -2925,28 +2972,61 @@ function wireItemDistTab(eligible){
   const shareBtn = $('itemdist-share-btn');
   if(shareBtn) shareBtn.addEventListener('click', async ()=>{
     const statusEl = $('itemdist-status');
+    if(editingDistId){
+      statusEl.className='status-line'; statusEl.textContent='Saving changes\u2026';
+      const { error } = await sb.from('item_distributions').update({
+        label: itemDistLabel || null,
+        event_date: itemDistEventDate || null,
+        batch: itemDistBatch || null,
+        items: itemDistItems,
+        assignments: itemDistResult.assignments,
+        pages: itemDistResult.pages,
+      }).eq('id', editingDistId);
+      if(error){
+        statusEl.className='status-line error'; statusEl.textContent="Couldn't save changes \u2014 try again.";
+        return;
+      }
+      statusEl.className='status-line ok'; statusEl.textContent='Changes saved. The share link now shows the updated distribution.';
+      await loadItemDistributions();
+      const historyEl = $('itemdist-history');
+      if(historyEl){ historyEl.innerHTML = renderItemDistHistoryHtml(); wireItemDistHistory(); }
+      return;
+    }
     statusEl.className='status-line'; statusEl.textContent='Creating link\u2026';
     const { data, error } = await sb.from('item_distributions').insert({
       guild_id: guildId,
       label: itemDistLabel || null,
       event_date: itemDistEventDate || null,
+      batch: itemDistBatch || null,
+      items: itemDistItems,
       assignments: itemDistResult.assignments,
       pages: itemDistResult.pages,
-    }).select('share_slug').single();
+    }).select('id,share_slug').single();
     if(error || !data){
       statusEl.className='status-line error'; statusEl.textContent="Couldn't create the link \u2014 try again.";
       return;
     }
     // Rotate this batch's starting point NOW that the distribution is
     // actually committed and shared — not on every "Generate" click,
-    // since that's just a preview until this point.
+    // since that's just a preview until this point, and not on later
+    // edits/saves to this same distribution either.
     if(itemDistBatch) await advanceBatchOffset(itemDistBatch, eligible.length);
+    editingDistId = data.id;
     const url = `${location.origin}${location.pathname.replace('index.html','')}distribution.html?slug=${data.share_slug}`;
     navigator.clipboard.writeText(url);
-    statusEl.className='status-line ok'; statusEl.textContent='Share link copied! Expires in 24 hours.';
+    statusEl.className='status-line ok'; statusEl.textContent='Share link copied! Expires in 24 hours. You can keep editing this distribution below — changes will save to it.';
     await loadItemDistributions();
-    const historyEl = $('itemdist-history');
-    if(historyEl){ historyEl.innerHTML = renderItemDistHistoryHtml(); wireItemDistHistory(); }
+    renderItemDistTab();
+  });
+  const newBtn = $('itemdist-new-btn');
+  if(newBtn) newBtn.addEventListener('click', ()=>{
+    editingDistId = null;
+    itemDistBatch = '';
+    itemDistEventDate = '';
+    itemDistLabel = '';
+    itemDistItems = [{name:'', qty:1, mode:'auto', manualPlayers:[]}];
+    itemDistResult = null;
+    renderItemDistTab();
   });
 }
 function renderLineupsList(){
