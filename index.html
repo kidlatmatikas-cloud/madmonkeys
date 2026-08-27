@@ -997,14 +997,25 @@ function getBatchPool(batchName){
 // "first" — advanced by one person every time a distribution for that
 // batch is actually shared, so bonus items rotate to a new person each
 // time instead of always landing on the same early-alphabet players.
+//
+// Uses order+limit instead of .maybeSingle() on purpose: if the
+// (guild_id, batch_name) unique index is ever missing in the database,
+// upsert() below can silently create duplicate rows instead of updating
+// one — and .maybeSingle() throws when more than one row matches, which
+// would make this always fall back to 0 and make the rotation look like
+// it's not doing anything. Taking the highest next_offset among any
+// duplicates keeps rotation moving forward even if that happens.
 async function getBatchOffset(batchName){
-  const { data } = await sb.from('item_dist_batches').select('next_offset').eq('guild_id', guildId).eq('batch_name', batchName).maybeSingle();
-  return data ? data.next_offset : 0;
+  const { data, error } = await sb.from('item_dist_batches').select('next_offset').eq('guild_id', guildId).eq('batch_name', batchName).order('next_offset', { ascending:false }).limit(1);
+  if(error || !data || !data.length) return 0;
+  return data[0].next_offset || 0;
 }
 async function advanceBatchOffset(batchName, poolSize){
   const current = await getBatchOffset(batchName);
   const next = poolSize > 0 ? (current + 1) % poolSize : 0;
-  await sb.from('item_dist_batches').upsert({ guild_id: guildId, batch_name: batchName, next_offset: next }, { onConflict: 'guild_id,batch_name' });
+  const { error } = await sb.from('item_dist_batches').upsert({ guild_id: guildId, batch_name: batchName, next_offset: next }, { onConflict: 'guild_id,batch_name' });
+  if(error){ console.error('advanceBatchOffset failed — rotation offset did not save:', error); return false; }
+  return true;
 }
 // Distribution modes, per item:
 // 'auto'   — round-robin across the eligible list, in alphabetical order.
@@ -3010,11 +3021,15 @@ function wireItemDistTab(eligible){
     // actually committed and shared — not on every "Generate" click,
     // since that's just a preview until this point, and not on later
     // edits/saves to this same distribution either.
-    if(itemDistBatch) await advanceBatchOffset(itemDistBatch, eligible.length);
+    let rotated = true;
+    if(itemDistBatch) rotated = await advanceBatchOffset(itemDistBatch, eligible.length);
     editingDistId = data.id;
     const url = `${location.origin}${location.pathname.replace('index.html','')}distribution.html?slug=${data.share_slug}`;
     navigator.clipboard.writeText(url);
-    statusEl.className='status-line ok'; statusEl.textContent='Share link copied! Expires in 24 hours. You can keep editing this distribution below — changes will save to it.';
+    statusEl.className='status-line ok';
+    statusEl.textContent = rotated
+      ? 'Share link copied! Expires in 24 hours. You can keep editing this distribution below — changes will save to it.'
+      : 'Share link copied — but the fairness rotation for next time failed to save. Run schema-itemdist-rotation-fix.sql, then try sharing again.';
     await loadItemDistributions();
     renderItemDistTab();
   });
