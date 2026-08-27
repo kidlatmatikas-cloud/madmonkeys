@@ -147,14 +147,14 @@ async function render(){
       <div class="sub">${dist.label ? escapeHtml(dist.label) : 'Auction results'}</div>
     </div>
     <div class="hud-panel">
-      <h2 class="section-title">Distribution Summary</h2>
-      <p class="section-hint">Pieces per player, broken down by item.</p>
-      ${renderSummary(dist.assignments||[])}
-    </div>
-    <div class="hud-panel">
       <h2 class="section-title">Find Your Items</h2>
       <p class="section-hint">Pick your name to see exactly which page and line your items are on.</p>
       ${renderLookup(dist.pages||[])}
+    </div>
+    <div class="hud-panel">
+      <h2 class="section-title">Distribution Summary</h2>
+      <p class="section-hint">Pieces per player, broken down by item.</p>
+      ${renderSummary(dist.assignments||[])}
     </div>
   `;
   const lookupSel = document.getElementById('player-lookup');
