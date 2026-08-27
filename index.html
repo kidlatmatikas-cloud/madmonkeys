@@ -545,7 +545,8 @@ let discordAttendees = []; // [{ discordName, matchedName, alreadyRecorded }]
 let discordRole = ''; // 'Elite' | 'Sub' — which scoreboard this Discord screenshot should cross-check against
 let discordAttendanceLog = []; // loaded from the discord_attendance table — the persistent, browsable log
 let profileChangeLog = []; // loaded from the profile_changes table
-let itemDistPoolSize = 40;
+let itemDistBatch = '';
+let itemDistEventDate = '';
 let itemDistLabel = '';
 let itemDistItems = [{name:'', qty:1, mode:'auto', manualPlayers:[]}];
 let itemDistResult = null; // {assignments, pages} once generated, else null
@@ -977,8 +978,27 @@ function getSessionDays(){
   });
 }
 /* ========================= Item Distribution ========================= */
-function getItemDistPool(size){
-  return roster.filter(m=>m.status!=='inactive').map(m=>m.name).sort().slice(0, size);
+const ITEM_DIST_BATCH_SIZE = 40;
+const ITEM_DIST_BATCHES = ['Tuesday Batch', 'Thursday Batch']; // add more here if a third batch is ever needed
+function getBatchPool(batchName){
+  const active = roster.filter(m=>m.status!=='inactive').map(m=>m.name).sort();
+  const idx = ITEM_DIST_BATCHES.indexOf(batchName);
+  if(idx === -1) return [];
+  const start = idx * ITEM_DIST_BATCH_SIZE;
+  return active.slice(start, start + ITEM_DIST_BATCH_SIZE);
+}
+// Each fixed batch remembers which position in its own pool counts as
+// "first" — advanced by one person every time a distribution for that
+// batch is actually shared, so bonus items rotate to a new person each
+// time instead of always landing on the same early-alphabet players.
+async function getBatchOffset(batchName){
+  const { data } = await sb.from('item_dist_batches').select('next_offset').eq('guild_id', guildId).eq('batch_name', batchName).maybeSingle();
+  return data ? data.next_offset : 0;
+}
+async function advanceBatchOffset(batchName, poolSize){
+  const current = await getBatchOffset(batchName);
+  const next = poolSize > 0 ? (current + 1) % poolSize : 0;
+  await sb.from('item_dist_batches').upsert({ guild_id: guildId, batch_name: batchName, next_offset: next }, { onConflict: 'guild_id,batch_name' });
 }
 // Distribution modes, per item:
 // 'auto'   — round-robin across the eligible list, in alphabetical order.
@@ -988,7 +1008,8 @@ function getItemDistPool(size){
 // 'manual' — the officer hands these out themselves; the tool just
 //            reserves the page/line slots and labels them accordingly.
 // 'free'   — first-come-first-served in-game; not assigned to anyone.
-function generateDistribution(items, eligibleNames){
+function generateDistribution(items, eligibleNames, startOffset){
+  startOffset = startOffset || 0;
   const poolSize = eligibleNames.length;
   const assignments = [];
   items.forEach(it=>{
@@ -1009,8 +1030,9 @@ function generateDistribution(items, eligibleNames){
     // auto: give each person their FULL share of this item on consecutive
     // lines before moving to the next person — not one unit per person
     // per lap, which scatters the same person's items across far-apart
-    // pages. Every auto item restarts from the first eligible player
-    // (A–Z) — it does not continue from where a previous item left off.
+    // pages. Every auto item restarts from the batch's current rotation
+    // offset (not always position 0), so the bonus units land on a
+    // different person's turn each time the batch is used.
     if(poolSize === 0){
       for(let i=0;i<qty;i++) assignments.push({ item: it.name, player: '\u2014 no eligible members \u2014', mode });
       return;
@@ -1018,7 +1040,7 @@ function generateDistribution(items, eligibleNames){
     const fullLaps = Math.floor(qty / poolSize);
     const remainder = qty % poolSize;
     for(let i=0;i<poolSize;i++){
-      const person = eligibleNames[i];
+      const person = eligibleNames[(startOffset + i) % poolSize];
       const unitsForPerson = fullLaps + (i < remainder ? 1 : 0);
       for(let u=0;u<unitsForPerson;u++) assignments.push({ item: it.name, player: person, mode });
     }
@@ -2574,17 +2596,23 @@ function placedCount(teams){
   return (teams||[]).reduce((s,t)=>s+t.parties.reduce((s2,p)=>s2+p.slots.filter(x=>x.name).length,0),0);
 }
 function renderItemDistTab(){
-  const activeRosterCount = roster.filter(m=>m.status!=='inactive').length;
   const rosterAlphaNames = roster.filter(m=>m.status!=='inactive').map(m=>m.name).sort();
-  const eligible = getItemDistPool(itemDistPoolSize);
+  const eligible = getBatchPool(itemDistBatch);
   $('itemdist-content').innerHTML = `
     <h2 class="section-title">Item Distribution</h2>
-    <p class="section-hint">Divide auction items among the first N members of your active roster, alphabetically. Mark an item as "You Assign" to hand it out yourself instead, or "Free for All" to leave it unclaimed. Auto-distribute items share one continuous, non-resetting turn order across the whole batch.</p>
+    <p class="section-hint">Divide auction items among a fixed batch of members, alphabetically. Mark an item as "You Assign" to hand it out yourself instead, or "Free for All" to leave it unclaimed. Bonus items (when quantity doesn't divide evenly) rotate to a new person each time this batch is shared, so the same people aren't always first.</p>
 
     <div class="field-row">
       <div style="flex:1 1 200px;">
-        <label for="itemdist-pool-size">Number of Players (A\u2013Z)</label>
-        <input type="number" id="itemdist-pool-size" min="1" max="${activeRosterCount}" value="${itemDistPoolSize}">
+        <label for="itemdist-batch">Batch</label>
+        <select id="itemdist-batch">
+          <option value="">\u2014 Select a batch \u2014</option>
+          ${ITEM_DIST_BATCHES.map((b,i)=>`<option value="${escapeHtml(b)}" ${itemDistBatch===b?'selected':''}>${escapeHtml(b)} (${i===0?'1st':'2nd'} ${ITEM_DIST_BATCH_SIZE}, A\u2013Z)</option>`).join('')}
+        </select>
+      </div>
+      <div style="flex:1 1 160px;">
+        <label for="itemdist-event-date">Date</label>
+        <input type="date" id="itemdist-event-date" value="${itemDistEventDate}">
       </div>
       <div style="flex:2 1 260px;">
         <label for="itemdist-label">Batch Label (optional, for your own reference)</label>
@@ -2592,7 +2620,7 @@ function renderItemDistTab(){
       </div>
     </div>
     <p style="margin:6px 0 22px; font-size:13px; color:var(--ink-soft);">
-      ${eligible.length} eligible player${eligible.length===1?'':'s'} out of ${activeRosterCount} active on the roster: ${eligible.map(escapeHtml).join(', ')}
+      ${itemDistBatch ? `${eligible.length} eligible player${eligible.length===1?'':'s'} in ${escapeHtml(itemDistBatch)}: ${eligible.map(escapeHtml).join(', ')}` : 'Pick a batch to see who\'s eligible.'}
     </p>
 
     <label style="display:block; margin-bottom:8px;">Items to Distribute</label>
@@ -2742,7 +2770,7 @@ function buildItemDistExportCard(){
   return `
     <div style="width:640px; padding:28px; background:#13151a; font-family:'Inter',sans-serif; color:#eceef2;">
       <div style="font-size:22px; font-weight:800;">Item Distribution</div>
-      <div style="font-size:13px; color:#8b93a1; margin:4px 0 20px;">${itemDistLabel ? escapeHtml(itemDistLabel) : `First ${itemDistPoolSize} players, A\u2013Z`}</div>
+      <div style="font-size:13px; color:#8b93a1; margin:4px 0 20px;">${[itemDistLabel, itemDistBatch, itemDistEventDate].filter(Boolean).map(escapeHtml).join(' \u2014 ') || 'Item Distribution'}</div>
       ${(()=>{
         const counts = {};
         itemDistResult.assignments.forEach(a=>{ if(a.mode==='auto') counts[a.player] = (counts[a.player]||0)+1; });
@@ -2773,12 +2801,12 @@ function buildItemDistExportCard(){
   `;
 }
 function wireItemDistTab(eligible){
-  $('itemdist-pool-size').addEventListener('change', e=>{
-    const n = parseInt(e.target.value,10);
-    itemDistPoolSize = (n && n>0) ? n : 1;
+  $('itemdist-batch').addEventListener('change', e=>{
+    itemDistBatch = e.target.value;
     itemDistResult = null;
     renderItemDistTab();
   });
+  $('itemdist-event-date').addEventListener('change', e=>{ itemDistEventDate = e.target.value; });
   $('itemdist-label').addEventListener('input', e=>{ itemDistLabel = e.target.value; });
   const lookupSel = $('itemdist-player-lookup');
   if(lookupSel) lookupSel.addEventListener('change', e=>{
@@ -2809,13 +2837,16 @@ function wireItemDistTab(eligible){
     itemDistItems.push({name:'', qty:1, mode:'auto'});
     renderItemDistTab();
   });
-  $('generate-dist-btn').addEventListener('click', ()=>{
+  $('generate-dist-btn').addEventListener('click', async ()=>{
     const statusEl = $('itemdist-status');
+    if(!itemDistBatch){ statusEl.className='status-line error'; statusEl.textContent='Pick a batch first.'; return; }
     const validItems = itemDistItems.filter(it=>it.name && parseInt(it.qty,10)>0);
     if(validItems.length===0){ statusEl.className='status-line error'; statusEl.textContent='Add at least one item with a quantity.'; return; }
     const hasAutoItem = validItems.some(it=>(it.mode||'auto')==='auto');
-    if(hasAutoItem && eligible.length===0){ statusEl.className='status-line error'; statusEl.textContent='No eligible players on the roster.'; return; }
-    itemDistResult = generateDistribution(validItems, eligible);
+    if(hasAutoItem && eligible.length===0){ statusEl.className='status-line error'; statusEl.textContent='No eligible players in this batch.'; return; }
+    statusEl.className='status-line'; statusEl.textContent='Generating\u2026';
+    const offset = await getBatchOffset(itemDistBatch);
+    itemDistResult = generateDistribution(validItems, eligible, offset);
     renderItemDistTab();
     const freshStatus = $('itemdist-status');
     if(freshStatus){ freshStatus.className='status-line ok'; freshStatus.textContent=`Laid out ${itemDistResult.assignments.length} item(s) across ${itemDistResult.pages.length} page(s).`; }
@@ -2834,6 +2865,7 @@ function wireItemDistTab(eligible){
     const { data, error } = await sb.from('item_distributions').insert({
       guild_id: guildId,
       label: itemDistLabel || null,
+      event_date: itemDistEventDate || null,
       assignments: itemDistResult.assignments,
       pages: itemDistResult.pages,
     }).select('share_slug').single();
@@ -2841,6 +2873,10 @@ function wireItemDistTab(eligible){
       statusEl.className='status-line error'; statusEl.textContent="Couldn't create the link \u2014 try again.";
       return;
     }
+    // Rotate this batch's starting point NOW that the distribution is
+    // actually committed and shared — not on every "Generate" click,
+    // since that's just a preview until this point.
+    if(itemDistBatch) await advanceBatchOffset(itemDistBatch, eligible.length);
     const url = `${location.origin}${location.pathname.replace('index.html','')}distribution.html?slug=${data.share_slug}`;
     navigator.clipboard.writeText(url);
     statusEl.className='status-line ok'; statusEl.textContent='Share link copied! Expires in 24 hours.';
