@@ -2693,11 +2693,12 @@ function renderItemDistHistoryHtml(){
   return itemDistributions.map(d=>`
     <div class="lineup-card">
       <div>
-        <div class="lineup-title"><span class="lineup-title-text">${escapeHtml(d.label || 'Untitled batch')}${d.event_date ? ' — '+escapeHtml(d.event_date) : ''}</span></div>
+        <div class="lineup-title"><a class="lineup-title-link" data-view-dist="${d.share_slug}"><span class="lineup-title-text">${escapeHtml(d.label || 'Untitled batch')}${d.event_date ? ' — '+escapeHtml(d.event_date) : ''}</span></a></div>
         <div class="lineup-meta">${(d.assignments||[]).length} item${(d.assignments||[]).length===1?'':'s'} · shared ${new Date(d.created_at).toLocaleString()}</div>
         ${linkStatusHtml(d)}
       </div>
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <button class="btn ghost small" data-view-dist="${d.share_slug}">View →</button>
         <button class="btn ghost small" data-copy-dist-link="${d.share_slug}">Copy Share Link</button>
         <button class="btn ghost small" data-renew-dist-link="${d.id}">Renew Link (24h)</button>
         ${isAdmin() ? `<button class="btn danger small" data-delete-dist="${d.id}">Delete</button>` : ''}
@@ -2706,6 +2707,10 @@ function renderItemDistHistoryHtml(){
   `).join('');
 }
 function wireItemDistHistory(){
+  document.querySelectorAll('[data-view-dist]').forEach(el=>el.addEventListener('click', ()=>{
+    const url = `${location.origin}${location.pathname.replace('index.html','')}distribution.html?slug=${el.dataset.viewDist}`;
+    window.open(url, '_blank');
+  }));
   document.querySelectorAll('[data-copy-dist-link]').forEach(el=>el.addEventListener('click', ()=>{
     const url = `${location.origin}${location.pathname.replace('index.html','')}distribution.html?slug=${el.dataset.copyDistLink}`;
     navigator.clipboard.writeText(url);
