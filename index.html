@@ -550,6 +550,7 @@ let itemDistEventDate = '';
 let itemDistLabel = '';
 let itemDistItems = [{name:'', qty:1, mode:'auto', manualPlayers:[]}];
 let itemDistResult = null; // {assignments, pages} once generated, else null
+let itemDistributions = []; // past shared distributions for this guild (history)
 let activityLog = []; // loaded from the activity_log table
 let eliteCapacity = 40, subCapacity = 40; // war-slot caps, not tied to specific roster names
 let draftEventName = 'WoE';
@@ -864,7 +865,7 @@ async function boot(){
     await sb.from('guild_settings').update({ name: newName }).eq('id', guildId);
     setStatus('Guild name updated.', 'ok');
   });
-  await Promise.all([loadRoster(), loadLineups(), loadSessions(), loadDiscordAttendanceLog(), loadProfileChangeLog(), loadActivityLog()]);
+  await Promise.all([loadRoster(), loadLineups(), loadSessions(), loadDiscordAttendanceLog(), loadProfileChangeLog(), loadActivityLog(), loadItemDistributions()]);
   renderStatStrip();
   switchTab('overview');
 }
@@ -927,6 +928,10 @@ async function loadDiscordAttendanceLog(){
 async function loadProfileChangeLog(){
   const { data } = await sb.from('profile_changes').select('*').eq('guild_id', guildId).order('changed_at', { ascending:false }).limit(50);
   profileChangeLog = data || [];
+}
+async function loadItemDistributions(){
+  const { data } = await sb.from('item_distributions').select('*').eq('guild_id', guildId).order('created_at', { ascending:false }).limit(50);
+  itemDistributions = data || [];
 }
 async function loadActivityLog(){
   const { data } = await sb.from('activity_log').select('*').eq('guild_id', guildId).order('created_at', { ascending:false }).limit(100);
@@ -2673,8 +2678,62 @@ function renderItemDistTab(){
       ${itemDistResult ? `<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px;">${renderDistPagesHtml(itemDistResult.pages)}</div>` : ''}
       ${itemDistResult ? renderDistSummaryHtml(itemDistResult.assignments) : ''}
     </div>
+
+    <div style="margin-top:34px; padding-top:22px; border-top:1px solid var(--line-strong);">
+      <h3 class="section-title" style="font-size:16px;">Past Distributions</h3>
+      <p class="section-hint">Every batch you've shared stays here — generating a new one never erases the ones before it.</p>
+      <div id="itemdist-history">${renderItemDistHistoryHtml()}</div>
+    </div>
   `;
   wireItemDistTab(eligible);
+  wireItemDistHistory();
+}
+function renderItemDistHistoryHtml(){
+  if(itemDistributions.length===0) return '<div class="empty-state">No distributions shared yet.</div>';
+  return itemDistributions.map(d=>`
+    <div class="lineup-card">
+      <div>
+        <div class="lineup-title"><span class="lineup-title-text">${escapeHtml(d.label || 'Untitled batch')}${d.event_date ? ' — '+escapeHtml(d.event_date) : ''}</span></div>
+        <div class="lineup-meta">${(d.assignments||[]).length} item${(d.assignments||[]).length===1?'':'s'} · shared ${new Date(d.created_at).toLocaleString()}</div>
+        ${linkStatusHtml(d)}
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <button class="btn ghost small" data-copy-dist-link="${d.share_slug}">Copy Share Link</button>
+        <button class="btn ghost small" data-renew-dist-link="${d.id}">Renew Link (24h)</button>
+        ${isAdmin() ? `<button class="btn danger small" data-delete-dist="${d.id}">Delete</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+function wireItemDistHistory(){
+  document.querySelectorAll('[data-copy-dist-link]').forEach(el=>el.addEventListener('click', ()=>{
+    const url = `${location.origin}${location.pathname.replace('index.html','')}distribution.html?slug=${el.dataset.copyDistLink}`;
+    navigator.clipboard.writeText(url);
+    const d = itemDistributions.find(x=>x.share_slug===el.dataset.copyDistLink);
+    const expired = d && d.share_expires_at && new Date(d.share_expires_at).getTime() < Date.now();
+    setStatus(expired ? 'Link copied — but it\'s expired, click Renew Link first.' : 'Share link copied.', expired ? 'error' : 'ok');
+  }));
+  document.querySelectorAll('[data-renew-dist-link]').forEach(el=>el.addEventListener('click', async ()=>{
+    const id = el.dataset.renewDistLink;
+    const newExpiry = new Date(Date.now() + 24*60*60*1000).toISOString();
+    await sb.from('item_distributions').update({ share_expires_at: newExpiry }).eq('id', id);
+    const idx = itemDistributions.findIndex(x=>x.id===id);
+    if(idx>=0) itemDistributions[idx].share_expires_at = newExpiry;
+    setStatus('Link renewed for another 24 hours.', 'ok');
+    $('itemdist-history').innerHTML = renderItemDistHistoryHtml();
+    wireItemDistHistory();
+  }));
+  document.querySelectorAll('[data-delete-dist]').forEach(el=>el.addEventListener('click', async ()=>{
+    if(!isAdmin()) return;
+    if(!confirm("Delete this distribution? This can't be undone.")) return;
+    const id = el.dataset.deleteDist;
+    const target = itemDistributions.find(x=>x.id===id);
+    await sb.from('item_distributions').delete().eq('id', id);
+    await logActivity('Deleted item distribution', target ? `${target.label||'Untitled'} — ${target.event_date||''}` : id);
+    itemDistributions = itemDistributions.filter(x=>x.id!==id);
+    $('itemdist-history').innerHTML = renderItemDistHistoryHtml();
+    wireItemDistHistory();
+  }));
 }
 // A quick "who got how many" overview — auto-distributed items only,
 // since "Officer picks" and "FREE FOR ALL" aren't assigned to anyone
@@ -2880,6 +2939,9 @@ function wireItemDistTab(eligible){
     const url = `${location.origin}${location.pathname.replace('index.html','')}distribution.html?slug=${data.share_slug}`;
     navigator.clipboard.writeText(url);
     statusEl.className='status-line ok'; statusEl.textContent='Share link copied! Expires in 24 hours.';
+    await loadItemDistributions();
+    const historyEl = $('itemdist-history');
+    if(historyEl){ historyEl.innerHTML = renderItemDistHistoryHtml(); wireItemDistHistory(); }
   });
 }
 function renderLineupsList(){
