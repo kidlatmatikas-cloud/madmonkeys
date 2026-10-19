@@ -272,32 +272,6 @@ function computeGuildTopStats(){
   });
   return Object.values(map);
 }
-function renderTopScorersPanel(){
-  const all = computeGuildTopStats();
-  if(all.length===0) return '';
-  const top = (key, filterPositive) => [...all].filter(m=>!filterPositive || m[key]>0).sort((a,b)=>b[key]-a[key]).slice(0,5);
-  const TOP_AVG_MIN_SESSIONS = 3; // filters out a single lucky war skewing the leaderboard
-  const topAvgScore = all.filter(m=>m.sessions>=TOP_AVG_MIN_SESSIONS).sort((a,b)=>b.avgScore-a.avgScore).slice(0,5);
-  const lbRows = (list, key) => list.length
-    ? list.map((m,i)=>`<div class="lb-row"><span class="lb-rank">${i+1}</span>${jobIconSvg(m.job)}<span class="lb-name">${escapeHtml(m.name)}</span><span class="lb-value">${m[key]}</span></div>`).join('')
-    : '<div class="empty-state" style="padding:14px 4px;">No data yet.</div>';
-  return `
-    <div class="hud-panel">
-      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
-      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
-      <h3 class="section-title" style="font-size:16px;">All-Time Top Scorers</h3>
-      <p class="section-hint">Guild-wide totals across every recorded war.</p>
-      <div class="dash-grid">
-        <div class="dash-panel"><h3>Top Kills</h3>${lbRows(top('kills', true), 'kills')}</div>
-        <div class="dash-panel"><h3>Top Assists</h3>${lbRows(top('assists', true), 'assists')}</div>
-        <div class="dash-panel"><h3>Top Tablets Taken</h3>${lbRows(top('trueTablets', true), 'trueTablets')}</div>
-        <div class="dash-panel"><h3>Top Monster Kills</h3>${lbRows(top('trueMonsterKills', true), 'trueMonsterKills')}</div>
-        <div class="dash-panel"><h3>Top Average Score</h3><div style="font-size:11px;color:var(--ink-faint);margin:-4px 0 10px;">Minimum ${TOP_AVG_MIN_SESSIONS} sessions to qualify</div>${topAvgScore.length ? lbRows(topAvgScore, 'avgScore') : '<div class="empty-state" style="padding:14px 4px;">No one has reached the minimum sessions yet.</div>'}</div>
-      </div>
-    </div>
-  `;
-}
-
 // Groups saved records into unique war days — if Elite and Sub were
 // uploaded separately for the same date, that's one war, not two, matching
 // how attendance is already counted above.
@@ -710,7 +684,7 @@ function wireNameUpdatePanel(){
     await loadStatsData(statsGuildId);
     const section = document.getElementById('stats-section');
     if(section){
-      section.innerHTML = `${renderTopScorersPanel()}${renderStatsLookupPanel()}${renderNameUpdatePanel()}`;
+      section.innerHTML = `${renderStatsLookupPanel()}${renderNameUpdatePanel()}`;
       wireStatsLookup();
       wireNameUpdatePanel();
     }
@@ -772,7 +746,6 @@ async function render(){
 
   content.innerHTML = `
     <div id="stats-section">
-      ${renderTopScorersPanel()}
       ${renderStatsLookupPanel()}
       ${renderNameUpdatePanel()}
     </div>
