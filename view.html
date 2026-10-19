@@ -298,45 +298,6 @@ function computeSpecificWarStats(name, date){
   };
 }
 
-function renderStatsLookupPanel(){
-  const options = guildRoster.map(m=>`<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join('');
-  const warOptions = getWarDays().map(d=>`<option value="${escapeHtml(d.date)}">${escapeHtml(d.date)}${d.opposing_guild?' — vs '+escapeHtml(d.opposing_guild):''}</option>`).join('');
-  return `
-    <div class="hud-panel">
-      <span class="corner corner-tl"></span><span class="corner corner-tr"></span>
-      <span class="corner corner-bl"></span><span class="corner corner-br"></span>
-      <h3 class="section-title" style="font-size:16px;">Check Your War Stats</h3>
-      <p class="section-hint">Pick your name and enter your UID to see your personal session history — kept private to you, since only you know your UID.</p>
-      <div class="field-row">
-        <div>
-          <label for="stats-name">Your Name</label>
-          <select id="stats-name"><option value="">— Select your name —</option>${options}</select>
-        </div>
-        <div>
-          <label for="stats-mmid">Your UID</label>
-          <input type="text" id="stats-mmid" placeholder="e.g. UID004">
-        </div>
-        <div>
-          <label for="stats-scope">View</label>
-          <select id="stats-scope">
-            <option value="alltime">All-Time Stats</option>
-            <option value="specific">Specific War</option>
-          </select>
-        </div>
-        <div id="stats-war-wrap" class="hidden">
-          <label for="stats-war">Which War</label>
-          <select id="stats-war">${warOptions || '<option value="">No wars recorded yet</option>'}</select>
-        </div>
-        <div style="flex:0 0 auto; display:flex; align-items:flex-end;">
-          <button class="btn gold small" id="stats-check-btn">Check My Stats</button>
-        </div>
-      </div>
-      <div class="status-line" id="stats-status"></div>
-      <div id="stats-result"></div>
-    </div>
-  `;
-}
-
 function wireStatsLookup(){
   const btn = document.getElementById('stats-check-btn');
   if(!btn) return;
@@ -684,7 +645,7 @@ function wireNameUpdatePanel(){
     await loadStatsData(statsGuildId);
     const section = document.getElementById('stats-section');
     if(section){
-      section.innerHTML = `${renderStatsLookupPanel()}${renderNameUpdatePanel()}`;
+      section.innerHTML = `${renderNameUpdatePanel()}`;
       wireStatsLookup();
       wireNameUpdatePanel();
     }
@@ -746,7 +707,6 @@ async function render(){
 
   content.innerHTML = `
     <div id="stats-section">
-      ${renderStatsLookupPanel()}
       ${renderNameUpdatePanel()}
     </div>
     <div class="hud-panel">
