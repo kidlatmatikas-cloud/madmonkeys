@@ -1934,9 +1934,159 @@ function renderDiscordLogBody(group){
   }));
 }
 
+/* ========================= Edit saved session ========================= */
+let sessionEdit = null; // { id, rows:[{id?,rank,name,tablets,monsters,kills,assists,deaths,score}], deletedIds:[] }
+
+function startSessionEdit(id){
+  const s = sessions.find(x=>x.id===id);
+  if(!s) return;
+  sessionEdit = {
+    id,
+    deletedIds: [],
+    rows: (s.entries||[]).map(e=>({ id:e.id, rank:e.rank||'', name:e.name||'', tablets:e.tablets||0, monsters:e.monsters||0, kills:e.kills||0, assists:e.assists||0, deaths:e.deaths||0, score:e.score||0 }))
+  };
+  renderSessionBody(id);
+}
+function cancelSessionEdit(id){ sessionEdit = null; renderSessionBody(id); }
+
+async function handleEditScanFiles(id, fileList){
+  const files = Array.from(fileList||[]).filter(f=>f.type && f.type.startsWith('image/'));
+  if(files.length===0 || !sessionEdit || sessionEdit.id!==id) return;
+  const setMsg = (cls,msg)=>{ const el=$('se-status-'+id); if(el){ el.className='status-line'+(cls?' '+cls:''); el.textContent=msg; } };
+  for(const file of files){
+    setMsg('', 'Reading '+file.name+'…');
+    try{
+      const base64 = await fileToBase64(file);
+      const res = await fetch('/api/scan', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ imageBase64: base64, mediaType: file.type })
+      });
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error || 'Scan failed');
+      if(!data.rows || data.rows.length===0) throw new Error('No rows found');
+      if(!sessionEdit || sessionEdit.id!==id) return;
+      sessionEdit.rows = sessionEdit.rows.concat(data.rows.map(r=>({ rank:r.rank||'', name:r.name||'', tablets:r.tablets||0, monsters:r.monsters||0, kills:r.kills||0, assists:r.assists||0, deaths:r.deaths||0, score:r.score||0 })));
+      renderSessionEdit(id);
+      setMsg('ok', 'Added '+data.rows.length+' row(s) from '+file.name+'. Review, then Save changes.');
+    }catch(err){
+      setMsg('error', "Couldn't read "+file.name+" — "+(err.message||'try again or add rows manually.'));
+    }
+  }
+}
+
+function renderSessionEdit(id){
+  const body = $('sbody-'+id);
+  const s = sessions.find(x=>x.id===id);
+  if(!body || !s || !sessionEdit || sessionEdit.id!==id) return;
+  const rows = sessionEdit.rows;
+  body.innerHTML = `
+    <div style="margin-top:14px; padding:10px 14px; border:1px solid var(--gold); background:rgba(220,154,61,.06); border-radius:7px; font-size:13px; color:var(--ink-soft);">
+      Editing this saved session — change any value, add rows by hand, or drop more screenshots to scan into it. Nothing is saved until you press <strong style="color:var(--ink);">Save changes</strong>.
+    </div>
+    <table class="responsive" style="margin-top:14px;">
+      <thead>
+        <tr><th rowspan="2">Rank</th><th rowspan="2">Player Name</th><th class="num" colspan="2" style="text-align:center;">Horn Duration/Monster Kill</th><th class="num" colspan="3" style="text-align:center;">K/A/D</th><th class="num" rowspan="2">Guild Points</th><th rowspan="2"></th></tr>
+        <tr><th class="num">Horn</th><th class="num">Monster</th><th class="num">K</th><th class="num">A</th><th class="num">D</th></tr>
+      </thead>
+      <tbody>${rows.length ? rows.map((r,i)=>`
+        <tr>
+          <td data-label="Rank"><input type="text" style="width:56px;" data-se="rank" data-idx="${i}" value="${escapeHtml(r.rank||'')}"></td>
+          <td data-label="Player Name"><input type="text" data-se="name" data-idx="${i}" value="${escapeHtml(r.name)}"></td>
+          <td class="num" data-label="Horn Duration"><input type="number" data-se="tablets" data-idx="${i}" value="${r.tablets}"></td>
+          <td class="num" data-label="Monster Kill"><input type="number" data-se="monsters" data-idx="${i}" value="${r.monsters}"></td>
+          <td class="num" data-label="K"><input type="number" data-se="kills" data-idx="${i}" value="${r.kills}"></td>
+          <td class="num" data-label="A"><input type="number" data-se="assists" data-idx="${i}" value="${r.assists}"></td>
+          <td class="num" data-label="D"><input type="number" data-se="deaths" data-idx="${i}" value="${r.deaths}"></td>
+          <td class="num" data-label="Guild Points"><input type="number" data-se="score" data-idx="${i}" value="${r.score}"></td>
+          <td data-label=""><button class="row-del" data-se-del="${i}">✕</button></td>
+        </tr>`).join('') : '<tr><td colspan="9"><div class="empty-state" style="padding:14px 4px;">No rows — add one below or scan a screenshot.</div></td></tr>'}</tbody>
+    </table>
+    <div id="se-dropzone-${id}" style="text-align:center; padding:20px 16px; cursor:pointer; border:1px dashed var(--line-strong); margin-top:14px;">
+      <div style="font-weight:700;">Drop more screenshots here, or click to browse</div>
+      <div style="font-size:12px;color:var(--ink-soft);margin-top:4px;">Scanned rows are added to this session — you can scan as many as you need</div>
+      <input type="file" id="se-file-${id}" accept="image/*" multiple style="display:none;">
+    </div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; align-items:center;">
+      <button class="btn ghost small" id="se-add-${id}">+ Add row manually</button>
+      <span class="status-line" id="se-status-${id}" style="margin:0;"></span>
+      <div style="flex:1"></div>
+      <button class="btn ghost" id="se-cancel-${id}">Cancel</button>
+      <button class="btn gold" id="se-save-${id}">Save changes</button>
+    </div>
+  `;
+  body.querySelectorAll('[data-se]').forEach(inp=>inp.addEventListener('input', e=>{
+    const idx=+inp.dataset.idx, field=inp.dataset.se;
+    rows[idx][field] = (field==='rank'||field==='name') ? e.target.value : (Number(e.target.value)||0);
+  }));
+  body.querySelectorAll('[data-se-del]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const idx = +btn.dataset.seDel;
+    const removed = rows.splice(idx,1)[0];
+    if(removed && removed.id) sessionEdit.deletedIds.push(removed.id);
+    renderSessionEdit(id);
+  }));
+  $('se-add-'+id).addEventListener('click', ()=>{
+    rows.push({ rank:'', name:'', tablets:0, monsters:0, kills:0, assists:0, deaths:0, score:0 });
+    renderSessionEdit(id);
+  });
+  const dz = $('se-dropzone-'+id), fi = $('se-file-'+id);
+  dz.addEventListener('click', ()=>fi.click());
+  dz.addEventListener('dragover', e=>{ e.preventDefault(); });
+  dz.addEventListener('drop', e=>{ e.preventDefault(); handleEditScanFiles(id, e.dataTransfer.files); });
+  fi.addEventListener('change', e=>{ handleEditScanFiles(id, e.target.files); fi.value=''; });
+  $('se-cancel-'+id).addEventListener('click', ()=>{
+    if(!confirm('Discard your edits to this session?')) return;
+    cancelSessionEdit(id);
+  });
+  $('se-save-'+id).addEventListener('click', ()=>saveSessionEdit(id));
+}
+
+async function saveSessionEdit(id){
+  if(!sessionEdit || sessionEdit.id!==id) return;
+  const s = sessions.find(x=>x.id===id);
+  const setMsg = (cls,msg)=>{ const el=$('se-status-'+id); if(el){ el.className='status-line'+(cls?' '+cls:''); el.textContent=msg; } };
+  const saveBtn = $('se-save-'+id);
+  // Blank-name rows are dropped; if one of those was an existing entry, delete it.
+  const keep = [], dropIds = [...sessionEdit.deletedIds];
+  sessionEdit.rows.forEach(r=>{
+    if(r.name && r.name.trim()) keep.push({ ...r, name:r.name.trim() });
+    else if(r.id) dropIds.push(r.id);
+  });
+  if(keep.length===0){ setMsg('error','A session needs at least one player row. To remove the whole session use Delete session.'); return; }
+  if(saveBtn) saveBtn.disabled = true;
+  setMsg('', 'Saving…');
+  const fields = r=>({ rank:r.rank||'', name:r.name, tablets:r.tablets||0, monsters:r.monsters||0, kills:r.kills||0, assists:r.assists||0, deaths:r.deaths||0, score:r.score||0 });
+  try{
+    const toInsert = keep.filter(r=>!r.id).map(r=>({ session_id:id, ...fields(r) }));
+    if(toInsert.length){
+      const { error } = await sb.from('session_entries').insert(toInsert);
+      if(error) throw error;
+    }
+    for(const r of keep.filter(r=>r.id)){
+      const { error } = await sb.from('session_entries').update(fields(r)).eq('id', r.id);
+      if(error) throw error;
+    }
+    if(dropIds.length){
+      const { error } = await sb.from('session_entries').delete().in('id', dropIds);
+      if(error) throw error;
+    }
+  }catch(err){
+    if(saveBtn) saveBtn.disabled = false;
+    setMsg('error', "Couldn't save all changes — "+(err.message||'try again.')+' Your edits are still on screen.');
+    return;
+  }
+  await logActivity('Edited session', `${(s&&s.event_name)||'WoE'} — ${(s&&s.date)||''}${s&&s.role?' ('+s.role+')':''}`);
+  sessionEdit = null;
+  expandedSessionId = id;
+  await loadSessions();
+  renderStatStrip();
+  renderLogTab();
+  setStatus('Session updated.', 'ok');
+}
+
 function renderSessionBody(id){
   const body = $('sbody-'+id);
   if(!body) return;
+  if(sessionEdit && sessionEdit.id===id){ renderSessionEdit(id); return; }
   const s = sessions.find(x=>x.id===id);
   if(!s){ body.innerHTML='<div class="status-line error">Not found.</div>'; return; }
   const hasAnyRank = (s.entries||[]).some(r=>r.rank);
@@ -2012,12 +2162,14 @@ function renderSessionBody(id){
     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; flex-wrap:wrap; gap:10px;">
       <span class="status-line" id="discord-status-${id}" style="margin:0;"></span>
       <div style="display:flex; gap:10px;">
+        <button class="btn ghost small" data-edit-session="${id}">Edit session</button>
         <button class="btn ghost small" data-post-discord="${id}">Post to Discord</button>
         <button class="btn ghost small" data-export-image="${id}">Export as Image</button>
         ${isAdmin() ? `<button class="btn danger small" data-delete-session="${id}">Delete session</button>` : ''}
       </div>
     </div>
   `;
+  body.querySelector('[data-edit-session]').addEventListener('click', ()=>startSessionEdit(id));
   body.querySelector('[data-post-discord]').addEventListener('click', async ()=>{
     const statusEl = $('discord-status-'+id);
     if(statusEl){ statusEl.className='status-line'; statusEl.textContent='Posting…'; }
