@@ -557,6 +557,8 @@ let eliteCapacity = 40, subCapacity = 40; // war-slot caps, not tied to specific
 let draftEventName = 'WoE';
 let draftDate = todayStr();
 let draftOpposingGuild = '';
+let draftMapType = '';
+const MAP_TYPE_OPTIONS = ['Stellar Clash', 'Vale of Clash', 'Vigrid Avenge'];
 let draftRole = '';
 let draftOurScore = '';
 let draftOpponentScore = '';
@@ -1385,6 +1387,7 @@ function renderNewTab(){
     </div>
     <div class="field-row">
       <div><label>Opposing Guild</label><input type="text" id="nf-opp" placeholder="Enemy guild name" value="${escapeHtml(draftOpposingGuild)}"></div>
+      <div><label>Map Type</label><select id="nf-map"><option value="">— Select —</option>${MAP_TYPE_OPTIONS.map(o=>`<option value="${escapeHtml(o)}" ${draftMapType===o?'selected':''}>${escapeHtml(o)}</option>`).join('')}</select></div>
       <div><label>Role</label><select id="nf-role"><option value="">— Select —</option><option value="Elite" ${draftRole==='Elite'?'selected':''}>Elite</option><option value="Sub" ${draftRole==='Sub'?'selected':''}>Sub</option></select></div>
     </div>
     <div class="field-row">
@@ -1443,6 +1446,7 @@ function renderNewTab(){
   });
   $('nf-opp').addEventListener('input', e=>draftOpposingGuild=e.target.value);
   $('nf-role').addEventListener('change', e=>draftRole=e.target.value);
+  $('nf-map').addEventListener('change', e=>draftMapType=e.target.value);
   $('nf-our-score').addEventListener('input', e=>draftOurScore=e.target.value);
   $('nf-opp-score').addEventListener('input', e=>draftOpponentScore=e.target.value);
   $('nf-dropzone').addEventListener('click', ()=>$('nf-file-input').click());
@@ -1744,25 +1748,32 @@ async function saveSession(){
   draftDate = $('nf-date').value || draftDate;
   draftOpposingGuild = ($('nf-opp').value||'').trim();
   draftRole = $('nf-role').value || '';
+  draftMapType = $('nf-map').value || '';
   draftOurScore = $('nf-our-score').value || '';
   draftOpponentScore = $('nf-opp-score').value || '';
 
   const cleaned = draftEntries.filter(r=>r.name && r.name.trim().length>0);
   if(cleaned.length===0){ setStatus('Add at least one player row first', 'error'); return; }
 
-  const { data: session, error } = await sb.from('sessions').insert({
+  const sessionRow = {
     guild_id: guildId, event_name: draftEventName, date: draftDate,
     opposing_guild: draftOpposingGuild || null, role: draftRole || null,
     our_score: draftOurScore===''?null:Number(draftOurScore),
     opponent_score: draftOpponentScore===''?null:Number(draftOpponentScore),
-  }).select('id').single();
+  };
+  let { data: session, error } = await sb.from('sessions').insert({ ...sessionRow, map_type: draftMapType || null }).select('id').single();
+  if(error && /map_type/i.test(error.message||'')){
+    // The sessions table has no map_type column yet — save without it so
+    // recording still works (run the SQL to add the column to keep the map).
+    ({ data: session, error } = await sb.from('sessions').insert(sessionRow).select('id').single());
+  }
   if(error){ setStatus("Couldn't save session.", 'error'); return; }
 
   const entryRows = cleaned.map(r=>({ session_id: session.id, rank:r.rank||'', name:r.name, tablets:r.tablets||0, monsters:r.monsters||0, kills:r.kills||0, assists:r.assists||0, deaths:r.deaths||0, score:r.score||0 }));
   await sb.from('session_entries').insert(entryRows);
 
   const savedDate = draftDate;
-  draftEntries=[]; draftEventName='WoE'; draftOpposingGuild=''; draftRole=''; draftOurScore=''; draftOpponentScore='';
+  draftEntries=[]; draftEventName='WoE'; draftOpposingGuild=''; draftMapType=''; draftRole=''; draftOurScore=''; draftOpponentScore='';
   await loadSessions();
   renderStatStrip();
   setStatus('Session saved. Head to Session Log or Overview when ready to post the war report to Discord.', 'ok');
@@ -1788,6 +1799,7 @@ function renderLogTab(){
                 <div class="session-meta" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                   ${s.role?`<span class="role-badge role-${s.role.toLowerCase()}">${escapeHtml(s.role)}</span>`:''}
                   ${s.opposing_guild?`<span>vs ${escapeHtml(s.opposing_guild)}</span>`:''}
+                  ${s.map_type?`<span>${escapeHtml(s.map_type)}</span>`:''}
                   ${outcome?`<span class="${cls}">${escapeHtml(String(s.our_score||0))} – ${escapeHtml(String(s.opponent_score||0))}</span>`:''}
                 </div>
               </div>
