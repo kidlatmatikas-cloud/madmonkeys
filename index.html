@@ -1440,6 +1440,7 @@ function renderNewTab(){
   $('nf-event').addEventListener('input', e=>draftEventName=e.target.value);
   $('nf-date').addEventListener('change', e=>{
     draftDate=e.target.value;
+    renderDraftTable();
     const echoEl = $('nf-discord-checking-against');
     if(echoEl) echoEl.innerHTML = `Comparing against: <strong>${escapeHtml(draftDate) || '(no date set above)'}</strong> · <strong>${discordRole || draftRole || '(pick a role below)'}</strong> records`;
     if(discordAttendees.length) refreshDiscordAlreadyRecorded();
@@ -1492,7 +1493,7 @@ function renderDraftTable(){
       <tbody>${draftEntries.map((r,i)=>`
         <tr>
           <td data-label="Rank"><input type="text" style="width:56px;" data-df="rank" data-idx="${i}" value="${escapeHtml(r.rank||'')}"></td>
-          <td data-label="Player Name"><input type="text" data-df="name" data-idx="${i}" value="${escapeHtml(r.name)}"></td>
+          <td data-label="Player Name">${nameSelectHtml('df', i, draftEntries, draftDate, null)}</td>
           <td class="num" data-label="Horn Duration"><input type="number" data-df="tablets" data-idx="${i}" value="${r.tablets}"></td>
           <td class="num" data-label="Monster Kill"><input type="number" data-df="monsters" data-idx="${i}" value="${r.monsters}"></td>
           <td class="num" data-label="K"><input type="number" data-df="kills" data-idx="${i}" value="${r.kills}"></td>
@@ -1508,9 +1509,28 @@ function renderDraftTable(){
     const idx=+inp.dataset.idx, field=inp.dataset.df;
     draftEntries[idx][field] = (field==='rank'||field==='name') ? e.target.value : (Number(e.target.value)||0);
   }));
+  wrap.querySelectorAll('select[data-df="name"]').forEach(sel=>sel.addEventListener('change', ()=>renderDraftTable()));
   wrap.querySelectorAll('[data-df-del]').forEach(btn=>btn.addEventListener('click', ()=>{
     draftEntries.splice(+btn.dataset.dfDel,1); renderDraftTable();
   }));
+}
+
+
+// Roster names still free to pick for a manual row: anyone already recorded
+// on another saved session with the same date, or already used in another
+// row of the table being edited, is left out of the dropdown.
+function nameSelectHtml(dataAttr, idx, rows, date, excludeSessionId){
+  const taken = new Set();
+  sessions.forEach(x=>{
+    if(date && x.date===date && x.id!==excludeSessionId) (x.entries||[]).forEach(e=>taken.add(e.name));
+  });
+  rows.forEach((r,j)=>{ if(j!==idx && r.name && r.name.trim()) taken.add(r.name.trim()); });
+  const current = (rows[idx].name||'').trim();
+  const free = roster.map(m=>m.name).filter(n=>!taken.has(n)).sort((a,b)=>a.localeCompare(b));
+  const opts = [];
+  if(current && !free.includes(current)) opts.push(current); // keep scanned/off-roster names selectable
+  free.forEach(n=>opts.push(n));
+  return `<select data-${dataAttr}="name" data-idx="${idx}"><option value="">— Select player —</option>${opts.map(n=>`<option value="${escapeHtml(n)}" ${n===current?'selected':''}>${escapeHtml(n)}</option>`).join('')}</select>`;
 }
 
 function fileToBase64(file){
@@ -1991,7 +2011,7 @@ function renderSessionEdit(id){
       <tbody>${rows.length ? rows.map((r,i)=>`
         <tr>
           <td data-label="Rank"><input type="text" style="width:56px;" data-se="rank" data-idx="${i}" value="${escapeHtml(r.rank||'')}"></td>
-          <td data-label="Player Name"><input type="text" data-se="name" data-idx="${i}" value="${escapeHtml(r.name)}"></td>
+          <td data-label="Player Name">${nameSelectHtml('se', i, rows, s.date, id)}</td>
           <td class="num" data-label="Horn Duration"><input type="number" data-se="tablets" data-idx="${i}" value="${r.tablets}"></td>
           <td class="num" data-label="Monster Kill"><input type="number" data-se="monsters" data-idx="${i}" value="${r.monsters}"></td>
           <td class="num" data-label="K"><input type="number" data-se="kills" data-idx="${i}" value="${r.kills}"></td>
@@ -2018,6 +2038,7 @@ function renderSessionEdit(id){
     const idx=+inp.dataset.idx, field=inp.dataset.se;
     rows[idx][field] = (field==='rank'||field==='name') ? e.target.value : (Number(e.target.value)||0);
   }));
+  body.querySelectorAll('select[data-se="name"]').forEach(sel=>sel.addEventListener('change', ()=>renderSessionEdit(id)));
   body.querySelectorAll('[data-se-del]').forEach(btn=>btn.addEventListener('click', ()=>{
     const idx = +btn.dataset.seDel;
     const removed = rows.splice(idx,1)[0];
