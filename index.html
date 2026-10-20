@@ -1485,17 +1485,20 @@ function renderDraftTable(){
   if(draftEntries.length===0){ wrap.innerHTML=''; return; }
   wrap.innerHTML = `
     <table class="responsive">
-      <thead><tr><th>Rank</th><th>Name</th><th class="num">Tablets</th><th class="num">Monsters</th><th class="num">Kills</th><th class="num">Assists</th><th class="num">Deaths</th><th class="num">Score</th><th></th></tr></thead>
+      <thead>
+        <tr><th rowspan="2">Rank</th><th rowspan="2">Player Name</th><th class="num" colspan="2" style="text-align:center;">Horn Duration/Monster Kill</th><th class="num" colspan="3" style="text-align:center;">K/A/D</th><th class="num" rowspan="2">Guild Points</th><th rowspan="2"></th></tr>
+        <tr><th class="num">Horn</th><th class="num">Monster</th><th class="num">K</th><th class="num">A</th><th class="num">D</th></tr>
+      </thead>
       <tbody>${draftEntries.map((r,i)=>`
         <tr>
           <td data-label="Rank"><input type="text" style="width:56px;" data-df="rank" data-idx="${i}" value="${escapeHtml(r.rank||'')}"></td>
-          <td data-label="Name"><input type="text" data-df="name" data-idx="${i}" value="${escapeHtml(r.name)}"></td>
-          <td class="num" data-label="Tablets"><input type="number" data-df="tablets" data-idx="${i}" value="${r.tablets}"></td>
-          <td class="num" data-label="Monsters"><input type="number" data-df="monsters" data-idx="${i}" value="${r.monsters}"></td>
-          <td class="num" data-label="Kills"><input type="number" data-df="kills" data-idx="${i}" value="${r.kills}"></td>
-          <td class="num" data-label="Assists"><input type="number" data-df="assists" data-idx="${i}" value="${r.assists}"></td>
-          <td class="num" data-label="Deaths"><input type="number" data-df="deaths" data-idx="${i}" value="${r.deaths}"></td>
-          <td class="num" data-label="Score"><input type="number" data-df="score" data-idx="${i}" value="${r.score}"></td>
+          <td data-label="Player Name"><input type="text" data-df="name" data-idx="${i}" value="${escapeHtml(r.name)}"></td>
+          <td class="num" data-label="Horn Duration"><input type="number" data-df="tablets" data-idx="${i}" value="${r.tablets}"></td>
+          <td class="num" data-label="Monster Kill"><input type="number" data-df="monsters" data-idx="${i}" value="${r.monsters}"></td>
+          <td class="num" data-label="K"><input type="number" data-df="kills" data-idx="${i}" value="${r.kills}"></td>
+          <td class="num" data-label="A"><input type="number" data-df="assists" data-idx="${i}" value="${r.assists}"></td>
+          <td class="num" data-label="D"><input type="number" data-df="deaths" data-idx="${i}" value="${r.deaths}"></td>
+          <td class="num" data-label="Guild Points"><input type="number" data-df="score" data-idx="${i}" value="${r.score}"></td>
           <td data-label=""><button class="row-del" data-df-del="${i}">✕</button></td>
         </tr>
       `).join('')}</tbody>
@@ -1976,26 +1979,32 @@ function renderSessionBody(id){
       <span class="status-line" id="date-status-${id}" style="margin:0;"></span>
     </div>
     <table class="responsive">
-      <thead><tr>
-        <th class="sortable" data-sort-session="__reset" title="Reset to original order">Rank${sessionSort.key===null?' \u25BC':''}</th>
-        <th class="sortable" data-sort-session="name">Name${sortArrow('name')}</th>
-        <th class="num sortable" data-sort-session="tablets">Tablets${sortArrow('tablets')}</th>
-        <th class="num sortable" data-sort-session="monsters">Monsters${sortArrow('monsters')}</th>
-        <th class="num sortable" data-sort-session="kills">Kills${sortArrow('kills')}</th>
-        <th class="num sortable" data-sort-session="assists">Assists${sortArrow('assists')}</th>
-        <th class="num sortable" data-sort-session="deaths">Deaths${sortArrow('deaths')}</th>
-        <th class="num sortable" data-sort-session="score">Score${sortArrow('score')}</th>
-      </tr></thead>
+      <thead>
+        <tr>
+          <th rowspan="2" class="sortable" data-sort-session="__reset" title="Reset to original order">Rank${sessionSort.key===null?' \u25BC':''}</th>
+          <th rowspan="2" class="sortable" data-sort-session="name">Player Name${sortArrow('name')}</th>
+          <th class="num" colspan="2" style="text-align:center;">Horn Duration/Monster Kill</th>
+          <th class="num" colspan="3" style="text-align:center;">K/A/D</th>
+          <th rowspan="2" class="num sortable" data-sort-session="score">Guild Points${sortArrow('score')}</th>
+        </tr>
+        <tr>
+          <th class="num sortable" data-sort-session="tablets">Horn${sortArrow('tablets')}</th>
+          <th class="num sortable" data-sort-session="monsters">Monster${sortArrow('monsters')}</th>
+          <th class="num sortable" data-sort-session="kills">K${sortArrow('kills')}</th>
+          <th class="num sortable" data-sort-session="assists">A${sortArrow('assists')}</th>
+          <th class="num sortable" data-sort-session="deaths">D${sortArrow('deaths')}</th>
+        </tr>
+      </thead>
       <tbody>${rows.map(r=>`
         <tr>
           <td data-label="Rank">${isMvp(r)?'<span class="mvp-seal">&#9733;</span>MVP':escapeHtml(r.rank||'—')}</td>
-          <td data-label="Name">${escapeHtml(r.name)}</td>
-          <td class="num" data-label="Tablets">${r.tablets}</td>
-          <td class="num" data-label="Monsters">${r.monsters}</td>
-          <td class="num" data-label="Kills">${r.kills}</td>
-          <td class="num" data-label="Assists">${r.assists}</td>
-          <td class="num" data-label="Deaths">${r.deaths}</td>
-          <td class="num" data-label="Score">${r.score}</td>
+          <td data-label="Player Name">${escapeHtml(r.name)}</td>
+          <td class="num" data-label="Horn Duration">${r.tablets}</td>
+          <td class="num" data-label="Monster Kill">${r.monsters}</td>
+          <td class="num" data-label="K">${r.kills}</td>
+          <td class="num" data-label="A">${r.assists}</td>
+          <td class="num" data-label="D">${r.deaths}</td>
+          <td class="num" data-label="Guild Points">${r.score}</td>
         </tr>
       `).join('')}</tbody>
     </table>
