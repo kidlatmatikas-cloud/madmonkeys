@@ -1683,7 +1683,7 @@ async function handleDiscordScan(file){
       .filter(n=>!existingDiscordNames.has(n))
       .map(n=>{
         const matched = matchRosterName(n);
-        return { discordName:n, matchedName:matched, alreadyRecorded: matched ? already.has(matched) : false };
+        return { discordName:n, matchedName:matched, inDiscord:'yes', alreadyRecorded: matched ? already.has(matched) : false };
       });
     discordAttendees = discordAttendees.concat(newRows);
     statusEl.className='status-line ok';
@@ -1697,9 +1697,9 @@ async function handleDiscordScan(file){
 // Manual alternative to scanning a Discord screenshot: pull everyone on the
 // Session Log for the chosen date + role, then remove (✕) whoever wasn't in
 // Discord, and/or add anyone else from the roster.
-function addDiscordAttendee(discordName, matchedName){
+function addDiscordAttendee(discordName, matchedName, inDiscord){
   const already = discordRole ? namesAlreadyInDiscordLog(draftDate, discordRole) : new Set();
-  discordAttendees.push({ discordName, matchedName, alreadyRecorded: matchedName ? already.has(matchedName) : false });
+  discordAttendees.push({ discordName, matchedName, inDiscord: inDiscord||'yes', alreadyRecorded: matchedName ? already.has(matchedName) : false });
 }
 function pullDiscordFromSessionLog(){
   const statusEl = $('nf-discord-status');
@@ -1713,10 +1713,10 @@ function pullDiscordFromSessionLog(){
   names.forEach(n=>{
     if(have.has(n)) return;
     const matched = roster.some(m=>m.name===n) ? n : (matchRosterByKey(n) || '');
-    addDiscordAttendee(n, matched);
+    addDiscordAttendee(n, matched, 'no');
     added++;
   });
-  setMsg('ok', `Pulled ${added} name(s) from the ${discordRole} Session Log for ${draftDate}. Remove (✕) anyone who wasn't in Discord, then press Log Attendance.`);
+  setMsg('ok', `Pulled ${added} name(s) from the ${discordRole} Session Log for ${draftDate}. Set In Discord? to Yes for everyone who is on the call, then press Log Attendance.`);
   renderDiscordReview();
 }
 function renderDiscordTools(){
@@ -1754,27 +1754,35 @@ function renderDiscordReview(){
   if(discordAttendees.length===0){ wrap.innerHTML=''; return; }
 
   const rosterOptions = (selected) => '<option value="">— No match —</option>' + roster.map(m=>`<option value="${escapeHtml(m.name)}" ${m.name===selected?'selected':''}>${escapeHtml(m.name)}</option>`).join('');
-  const willRecord = discordAttendees.filter(a=>a.matchedName && !a.alreadyRecorded).length;
-  const alreadyCount = discordAttendees.filter(a=>a.matchedName && a.alreadyRecorded).length;
-  const noMatchCount = discordAttendees.filter(a=>!a.matchedName).length;
+  const isYes = a=>a.inDiscord!=='no';
+  const willRecord = discordAttendees.filter(a=>isYes(a) && a.matchedName && !a.alreadyRecorded).length;
+  const noCount = discordAttendees.filter(a=>!isYes(a)).length;
+  const alreadyCount = discordAttendees.filter(a=>isYes(a) && a.matchedName && a.alreadyRecorded).length;
+  const noMatchCount = discordAttendees.filter(a=>isYes(a) && !a.matchedName).length;
 
   // Reverse check: who's on the {role} scoreboard for this date but wasn't
   // spotted in this Discord screenshot — purely informational, doesn't
   // affect what gets logged. Could mean they left the call early, joined
   // a different channel, or the screenshot missed them.
-  const matchedNames = new Set(discordAttendees.map(a=>a.matchedName).filter(Boolean));
+  const matchedNames = new Set(discordAttendees.filter(isYes).map(a=>a.matchedName).filter(Boolean));
   const onScoreboard = discordRole ? namesOnScoreboardForDateAndRole(draftDate, discordRole) : new Set();
   const notInDiscord = [...onScoreboard].filter(n=>!matchedNames.has(n));
 
   wrap.innerHTML = `
     <table class="responsive" style="margin-top:14px;">
-      <thead><tr><th>Discord Name</th><th>Matched Roster Member</th><th></th></tr></thead>
+      <thead><tr><th>Discord Name</th><th>Matched Roster Member</th><th>In Discord?</th><th></th></tr></thead>
       <tbody>${discordAttendees.map((a,i)=>`
-        <tr style="${a.alreadyRecorded?'opacity:.55;':''}">
+        <tr style="${(a.alreadyRecorded || a.inDiscord==='no')?'opacity:.55;':''}">
           <td data-label="Discord Name">${escapeHtml(a.discordName)}</td>
           <td data-label="Matched">
             <select data-discord-match="${i}">${rosterOptions(a.matchedName)}</select>
             ${a.alreadyRecorded ? `<span style="font-size:11px;color:var(--ink-soft);margin-left:6px;">already logged</span>` : (!a.matchedName ? '<span style="font-size:11px;color:var(--magenta);margin-left:6px;">no match</span>' : '')}
+          </td>
+          <td data-label="In Discord?">
+            <select data-discord-in="${i}" style="min-width:90px;">
+              <option value="yes" ${a.inDiscord!=='no'?'selected':''}>Yes</option>
+              <option value="no" ${a.inDiscord==='no'?'selected':''}>No</option>
+            </select>
           </td>
           <td data-label=""><button class="row-del" data-discord-remove="${i}">✕</button></td>
         </tr>
@@ -1786,10 +1794,12 @@ function renderDiscordReview(){
       ${notInDiscord.map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('')}
     </div>` : ''}
     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; flex-wrap:wrap; gap:10px;">
-      <span style="font-size:12.5px;color:var(--ink-soft);">${discordAttendees.length} scanned — ${alreadyCount} already logged, ${noMatchCount} unmatched, <strong style="color:var(--ink);">${willRecord} new</strong> to log</span>
+      <span style="font-size:12.5px;color:var(--ink-soft);">${discordAttendees.length} listed — ${noCount} marked No, ${alreadyCount} already logged, ${noMatchCount} unmatched, <strong style="color:var(--ink);">${willRecord} new</strong> to log</span>
       <div style="display:flex; gap:8px;">
+        <button class="btn ghost small" id="nf-discord-all-yes">Mark all Yes</button>
+        <button class="btn ghost small" id="nf-discord-all-no">Mark all No</button>
         <button class="btn ghost small" id="nf-discord-clear">Clear</button>
-        <button class="btn gold small" id="nf-discord-record" ${willRecord===0?'disabled title="Everyone matched is already logged for this date — nothing new to add."':''}>${willRecord===0?'Fully Logged':'Log Attendance'}</button>
+        <button class="btn gold small" id="nf-discord-record" ${willRecord===0?'disabled title="Nobody marked Yes is waiting to be logged — mark members Yes, or they may already be logged for this date."':''}>${willRecord===0?(noCount>0&&alreadyCount===0?'Mark Members Yes':'Fully Logged'):'Log Attendance'}</button>
       </div>
     </div>
   `;
@@ -1801,6 +1811,12 @@ function renderDiscordReview(){
     discordAttendees[idx].alreadyRecorded = e.target.value ? already.has(e.target.value) : false;
     renderDiscordReview();
   }));
+  wrap.querySelectorAll('[data-discord-in]').forEach(sel=>sel.addEventListener('change', e=>{
+    discordAttendees[+sel.dataset.discordIn].inDiscord = e.target.value;
+    renderDiscordReview();
+  }));
+  wrap.querySelector('#nf-discord-all-yes').addEventListener('click', ()=>{ discordAttendees.forEach(a=>a.inDiscord='yes'); renderDiscordReview(); });
+  wrap.querySelector('#nf-discord-all-no').addEventListener('click', ()=>{ discordAttendees.forEach(a=>a.inDiscord='no'); renderDiscordReview(); });
   wrap.querySelectorAll('[data-discord-remove]').forEach(btn=>btn.addEventListener('click', ()=>{
     discordAttendees.splice(+btn.dataset.discordRemove,1);
     renderDiscordReview();
@@ -1809,7 +1825,7 @@ function renderDiscordReview(){
   wrap.querySelector('#nf-discord-record').addEventListener('click', recordDiscordAttendance);
 }
 async function recordDiscordAttendance(){
-  const toRecord = discordAttendees.filter(a=>a.matchedName && !a.alreadyRecorded);
+  const toRecord = discordAttendees.filter(a=>a.inDiscord!=='no' && a.matchedName && !a.alreadyRecorded);
   if(toRecord.length===0){ setStatus("Nothing new to add — everyone matched is already logged for this date.", 'ok'); return; }
   if(!confirm(`Log ${toRecord.length} member(s) as present via Discord for ${draftDate} (${discordRole})?`)) return;
 
