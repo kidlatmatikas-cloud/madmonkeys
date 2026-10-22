@@ -1114,6 +1114,13 @@ function computeMvpCounts(){
   return counts;
 }
 function blankMember(name){ return { name, id:null, mmid:'', job:'', sessions:0, tablets:0, monsters:0, trueTablets:0, trueMonsterKills:0, kills:0, assists:0, deaths:0, eliteDeaths:0, subDeaths:0, eliteSessions:0, subSessions:0, scoreSum:0, best:0 }; }
+// Attendance views only list people currently on the Full Roster, so anyone
+// deleted or kicked from the roster drops out (their saved war records stay).
+function currentRosterOnly(stats){
+  if(!roster.length) return stats;
+  const names = new Set(roster.map(m=>m.name));
+  return stats.filter(m=>names.has(m.name));
+}
 function computeRosterStats(){
   // Attendance is based on unique WAR DAYS, not raw saved records — if you
   // upload Elite and Sub scoreboards as two separate saves for the same
@@ -1218,7 +1225,7 @@ function renderOverviewTab(){
   const topTablets = rosterStats.filter(m=>m.eliteSessions>0).sort((a,b)=>b.trueTablets-a.trueTablets).slice(0,5);
   const topMonsterKills = rosterStats.filter(m=>m.sessions>0).sort((a,b)=>b.trueMonsterKills-a.trueMonsterKills).slice(0,5);
   const topMvp = Object.entries(mvpCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  const topAttendance = sessions.length ? [...rosterStats].sort((a,b)=>b.attendance-a.attendance).slice(0,5) : [];
+  const topAttendance = sessions.length ? [...currentRosterOnly(rosterStats)].sort((a,b)=>b.attendance-a.attendance).slice(0,5) : [];
   const jobCounts = {};
   roster.forEach(m=>{ if(m.job) jobCounts[m.job]=(jobCounts[m.job]||0)+1; });
   const jobList = Object.entries(jobCounts).sort((a,b)=>b[1]-a[1]);
@@ -2802,7 +2809,7 @@ function renderFullRosterTab(){
 
 /* ========================= Attendance ========================= */
 function renderAttendanceTab(){
-  const rosterStats = computeRosterStats();
+  const rosterStats = currentRosterOnly(computeRosterStats());
   const sorted = [...rosterStats].sort((a,b)=>{
     const dir = attendanceSort.dir==='asc'?1:-1;
     const av=a[attendanceSort.key], bv=b[attendanceSort.key];
