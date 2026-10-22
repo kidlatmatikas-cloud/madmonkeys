@@ -1684,7 +1684,7 @@ async function handleDiscordScan(file){
       .filter(n=>!existingDiscordNames.has(n))
       .map(n=>{
         const matched = matchRosterName(n);
-        return { discordName:n, matchedName:matched, inDiscord:'yes', alreadyRecorded: matched ? already.has(matched) : false };
+        return { discordName:n, matchedName:matched, inDiscord:'yes', inMic:'no', alreadyRecorded: matched ? already.has(matched) : false };
       });
     discordAttendees = discordAttendees.concat(newRows);
     statusEl.className='status-line ok';
@@ -1700,7 +1700,7 @@ async function handleDiscordScan(file){
 // Discord, and/or add anyone else from the roster.
 function addDiscordAttendee(discordName, matchedName, inDiscord){
   const already = discordRole ? namesAlreadyInDiscordLog(draftDate, discordRole) : new Set();
-  discordAttendees.push({ discordName, matchedName, inDiscord: inDiscord||'yes', alreadyRecorded: matchedName ? already.has(matchedName) : false });
+  discordAttendees.push({ discordName, matchedName, inDiscord: inDiscord||'yes', inMic:'no', alreadyRecorded: matchedName ? already.has(matchedName) : false });
 }
 function pullDiscordFromSessionLog(){
   const statusEl = $('nf-discord-status');
@@ -1771,7 +1771,7 @@ function renderDiscordReview(){
 
   wrap.innerHTML = `
     <table class="responsive" style="margin-top:14px;">
-      <thead><tr><th>Discord Name</th><th>Matched Roster Member</th><th>In Discord?</th><th></th></tr></thead>
+      <thead><tr><th>Discord Name</th><th>Matched Roster Member</th><th>In Discord?</th><th>In-Game Mic?</th><th></th></tr></thead>
       <tbody>${discordAttendees.map((a,i)=>`
         <tr style="${(a.alreadyRecorded || a.inDiscord==='no')?'opacity:.55;':''}">
           <td data-label="Discord Name">${escapeHtml(a.discordName)}</td>
@@ -1783,6 +1783,12 @@ function renderDiscordReview(){
             <select data-discord-in="${i}" style="min-width:90px;">
               <option value="yes" ${a.inDiscord!=='no'?'selected':''}>Yes</option>
               <option value="no" ${a.inDiscord==='no'?'selected':''}>No</option>
+            </select>
+          </td>
+          <td data-label="In-Game Mic?">
+            <select data-discord-mic="${i}" style="min-width:90px;">
+              <option value="yes" ${a.inMic==='yes'?'selected':''}>Yes</option>
+              <option value="no" ${a.inMic!=='yes'?'selected':''}>No</option>
             </select>
           </td>
           <td data-label=""><button class="row-del" data-discord-remove="${i}">✕</button></td>
@@ -1816,6 +1822,9 @@ function renderDiscordReview(){
     discordAttendees[+sel.dataset.discordIn].inDiscord = e.target.value;
     renderDiscordReview();
   }));
+  wrap.querySelectorAll('[data-discord-mic]').forEach(sel=>sel.addEventListener('change', e=>{
+    discordAttendees[+sel.dataset.discordMic].inMic = e.target.value;
+  }));
   wrap.querySelector('#nf-discord-all-yes').addEventListener('click', ()=>{ discordAttendees.forEach(a=>a.inDiscord='yes'); renderDiscordReview(); });
   wrap.querySelector('#nf-discord-all-no').addEventListener('click', ()=>{ discordAttendees.forEach(a=>a.inDiscord='no'); renderDiscordReview(); });
   wrap.querySelectorAll('[data-discord-remove]').forEach(btn=>btn.addEventListener('click', ()=>{
@@ -1830,14 +1839,22 @@ async function recordDiscordAttendance(){
   if(toRecord.length===0){ setStatus("Nothing new to add — everyone matched is already logged for this date.", 'ok'); return; }
   if(!confirm(`Log ${toRecord.length} member(s) as present via Discord for ${draftDate} (${discordRole})?`)) return;
 
-  const rows = toRecord.map(a=>({ guild_id: guildId, date: draftDate, role: discordRole, member_name: a.matchedName }));
-  const { error } = await sb.from('discord_attendance').insert(rows);
+  const rows = toRecord.map(a=>({ guild_id: guildId, date: draftDate, role: discordRole, member_name: a.matchedName, in_game_mic: a.inMic==='yes' }));
+  let { error } = await sb.from('discord_attendance').insert(rows);
+  let micSaved = true;
+  if(error && /in_game_mic/i.test(error.message||'')){
+    // The table has no in_game_mic column yet — save attendance without it.
+    micSaved = false;
+    ({ error } = await sb.from('discord_attendance').insert(rows.map(({in_game_mic, ...r})=>r)));
+  }
   if(error){ setStatus("Couldn't log attendance.", 'error'); return; }
 
   discordAttendees = [];
   await loadDiscordAttendanceLog();
   renderNewTab();
-  setStatus(`Logged ${rows.length} member(s) as present via Discord for ${draftDate} (${discordRole}). See the Discord Log tab to browse history.`, 'ok');
+  setStatus(micSaved
+    ? `Logged ${rows.length} member(s) as present via Discord for ${draftDate} (${discordRole}). See the Discord Log tab to browse history.`
+    : `Logged ${rows.length} member(s), but in-game mic wasn't saved — add the in_game_mic column to the discord_attendance table (see note).`, micSaved ? 'ok' : 'error');
 }
 
 /* ========================= Discord report ========================= */
@@ -2049,15 +2066,18 @@ function discordLogRoleSection(roleLabel, roleClass, members, capacity, date, ro
   const missingFromDiscord = [...onScoreboard].filter(n=>!matchedSet.has(n)).sort();
   const editing = !!(discordLogEdit && discordLogEdit.date===date && discordLogEdit.role===role);
   const canAdd = roster.filter(m=>m.status!=='inactive' && !matchedSet.has(m.name)).map(m=>m.name).sort((a,b)=>a.localeCompare(b));
+  const micSet = new Set(discordAttendanceLog.filter(r=>r.date===date && r.role===role && r.in_game_mic).map(r=>r.member_name));
+  const micBadge = n => micSet.has(n) ? ' <span title="In-game mic" style="font-size:12px;">🎤</span>' : '';
   const chips = [...members].sort().map(n=> editing
-    ? `<span class="chip">${escapeHtml(n)}<button type="button" data-dl-remove-member="${escapeHtml(n)}" data-dl-role="${role}" title="Remove ${escapeHtml(n)} from this log">&times;</button></span>`
-    : `<span class="chip">${escapeHtml(n)}</span>`).join('');
+    ? `<span class="chip">${escapeHtml(n)}${micBadge(n)}<button type="button" data-dl-toggle-mic="${escapeHtml(n)}" data-dl-role="${role}" title="${micSet.has(n)?'Turn off':'Turn on'} in-game mic for ${escapeHtml(n)}" style="color:${micSet.has(n)?'var(--green)':'var(--ink-soft)'};font-size:12px;">${micSet.has(n)?'mic on':'mic off'}</button><button type="button" data-dl-remove-member="${escapeHtml(n)}" data-dl-role="${role}" title="Remove ${escapeHtml(n)} from this log">&times;</button></span>`
+    : `<span class="chip">${escapeHtml(n)}${micBadge(n)}</span>`).join('');
   return `
     <div style="margin-bottom:20px;">
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:9px; flex-wrap:wrap;">
         <span class="role-badge ${roleClass}">${roleLabel}</span>
         <span style="font-size:13px; font-weight:700; color:var(--ink);">${confirmed}/${capacity} attended</span>
         <span style="font-size:12px;color:var(--magenta);">${empty} slot${empty===1?'':'s'} empty</span>
+        <span style="font-size:12px;color:var(--ink-soft);">🎤 ${micSet.size} on mic</span>
         <span style="margin-left:auto; display:flex; gap:6px;">
           ${editing
             ? `<button class="btn gold small" data-dl-done="${role}">Done</button>`
@@ -2131,6 +2151,15 @@ function renderDiscordLogBody(group){
     const { error } = await sb.from('discord_attendance').insert(names.map(n=>({ guild_id: guildId, date: group.date, role, member_name: n })));
     if(error){ setStatus("Couldn't update attendance.", 'error'); return; }
     await logActivity('Edited Discord log', `Marked ${names.length} present — ${role} ${group.date}`);
+    await refresh();
+  }));
+  body.querySelectorAll('[data-dl-toggle-mic]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const name = btn.dataset.dlToggleMic, role = btn.dataset.dlRole;
+    const row = discordAttendanceLog.find(r=>r.date===group.date && r.role===role && r.member_name===name);
+    const next = !(row && row.in_game_mic);
+    const { error } = await sb.from('discord_attendance').update({ in_game_mic: next }).eq('guild_id', guildId).eq('date', group.date).eq('role', role).eq('member_name', name);
+    if(error){ setStatus("Couldn't save mic — add the in_game_mic column to discord_attendance first.", 'error'); return; }
+    await logActivity('Edited Discord log', `${name} in-game mic ${next?'on':'off'} — ${role} ${group.date}`);
     await refresh();
   }));
   body.querySelectorAll('[data-dl-remove-member]').forEach(btn=>btn.addEventListener('click', async ()=>{
@@ -2967,6 +2996,17 @@ function renderFullRosterTab(){
 /* ========================= Attendance ========================= */
 function renderAttendanceTab(){
   const rosterStats = currentRosterOnly(computeRosterStats());
+  // Discord attendance: days present in the Discord log vs. every date that has a Discord log.
+  const discordDates = new Set(discordAttendanceLog.map(r=>r.date));
+  const discordDaysByName = {};
+  discordAttendanceLog.forEach(r=>{
+    if(!discordDaysByName[r.member_name]) discordDaysByName[r.member_name] = new Set();
+    discordDaysByName[r.member_name].add(r.date);
+  });
+  rosterStats.forEach(m=>{
+    m.discordDays = discordDaysByName[m.name] ? discordDaysByName[m.name].size : 0;
+    m.discordPct = discordDates.size ? (m.discordDays / discordDates.size) * 100 : 0;
+  });
   const sorted = [...rosterStats].sort((a,b)=>{
     const dir = attendanceSort.dir==='asc'?1:-1;
     const av=a[attendanceSort.key], bv=b[attendanceSort.key];
@@ -2975,13 +3015,14 @@ function renderAttendanceTab(){
   });
   const cols = [
     {key:'name',label:'Name'},{key:'job',label:'Job'},{key:'sessions',label:'Sessions',num:true},{key:'attendance',label:'Attend %',num:true},
+    {key:'discordDays',label:'Discord',num:true},{key:'discordPct',label:'Discord %',num:true},
     {key:'avgScore',label:'Avg Score',num:true},{key:'best',label:'Best',num:true},
     {key:'kills',label:'Kills',num:true},{key:'assists',label:'Assists',num:true},{key:'deaths',label:'Deaths',num:true},
     {key:'trueTablets',label:'Tablets',num:true},{key:'trueMonsterKills',label:'Monster Kills',num:true}
   ];
   $('attendance-content').innerHTML = `
     <h2 class="section-title">Attendance</h2>
-    <p class="section-hint">Totals across every war day, including roster members who haven't attended yet. If you save multiple records for the same date (e.g. Elite and Sub separately), they count as one day. Click a column to sort.</p>
+    <p class="section-hint">Totals across every war day, including roster members who haven't attended yet. If you save multiple records for the same date (e.g. Elite and Sub separately), they count as one day. Discord shows the days each member was logged present in the Discord Log, out of every date that has a Discord log. Click a column to sort.</p>
     ${sessions.length===0 && roster.length===0 ? '<div class="empty-state">No sessions or roster yet.</div>' : `
     <table class="responsive">
       <thead><tr>
@@ -2995,6 +3036,8 @@ function renderAttendanceTab(){
           <td data-label="Job">${jobCell}</td>
           <td class="num" data-label="Sessions">${m.sessions}</td>
           <td class="num ${cls}" data-label="Attend %">${m.attendance.toFixed(0)}%</td>
+          <td class="num" data-label="Discord">${m.discordDays}/${discordDates.size}</td>
+          <td class="num ${m.discordPct>=75?'attn-high':(m.discordPct>=40?'attn-mid':'attn-low')}" data-label="Discord %">${m.discordPct.toFixed(0)}%</td>
           <td class="num" data-label="Avg Score">${m.avgScore.toFixed(0)}</td>
           <td class="num" data-label="Best">${m.best}</td>
           <td class="num" data-label="Kills">${m.kills}</td>
