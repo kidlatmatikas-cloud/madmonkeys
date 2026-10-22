@@ -501,6 +501,7 @@ let picker = null; // {ti,pi,si}
 let currentTab = 'overview';
 let expandedSessionId = null;
 let expandedDiscordLogKey = null;
+let discordLogEdit = null; // { date, role } while a role's log is being edited
 let fullRosterSort = { key:'name', dir:'asc' };
 let fullRosterJobFilter = new Set(); // multi-select — empty means "All Jobs"
 let fullRosterSearch = '';
@@ -2046,18 +2047,43 @@ function discordLogRoleSection(roleLabel, roleClass, members, capacity, date, ro
   const matchedSet = new Set(members);
   const onScoreboard = namesOnScoreboardForDateAndRole(date, role);
   const missingFromDiscord = [...onScoreboard].filter(n=>!matchedSet.has(n)).sort();
+  const editing = !!(discordLogEdit && discordLogEdit.date===date && discordLogEdit.role===role);
+  const canAdd = roster.filter(m=>m.status!=='inactive' && !matchedSet.has(m.name)).map(m=>m.name).sort((a,b)=>a.localeCompare(b));
+  const chips = [...members].sort().map(n=> editing
+    ? `<span class="chip">${escapeHtml(n)}<button type="button" data-dl-remove-member="${escapeHtml(n)}" data-dl-role="${role}" title="Remove ${escapeHtml(n)} from this log">&times;</button></span>`
+    : `<span class="chip">${escapeHtml(n)}</span>`).join('');
   return `
     <div style="margin-bottom:20px;">
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:9px; flex-wrap:wrap;">
         <span class="role-badge ${roleClass}">${roleLabel}</span>
         <span style="font-size:13px; font-weight:700; color:var(--ink);">${confirmed}/${capacity} attended</span>
         <span style="font-size:12px;color:var(--magenta);">${empty} slot${empty===1?'':'s'} empty</span>
+        <span style="margin-left:auto; display:flex; gap:6px;">
+          ${editing
+            ? `<button class="btn gold small" data-dl-done="${role}">Done</button>`
+            : `<button class="btn ghost small" data-dl-edit="${role}">Edit</button>`}
+        </span>
       </div>
-      ${members.length ? [...members].sort().map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('') : `<div style="font-size:13px;color:var(--ink-soft);">No one logged for ${roleLabel} on this date.</div>`}
+      ${editing ? `
+      <div class="field-row" style="margin-bottom:12px; align-items:flex-end;">
+        <div style="max-width:200px;">
+          <label for="dl-date-${role}">Date</label>
+          <input type="date" id="dl-date-${role}" value="${escapeHtml(date)}">
+        </div>
+        <div style="max-width:260px;">
+          <label for="dl-add-${role}">Add a member</label>
+          <select id="dl-add-${role}" data-dl-add="${role}"><option value="">— Select member —</option>${canAdd.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')}</select>
+        </div>
+        <div style="flex:0 0 auto;"><button class="btn small" data-dl-save-date="${role}">Change Date</button></div>
+      </div>` : ''}
+      ${members.length ? chips : `<div style="font-size:13px;color:var(--ink-soft);">No one logged for ${roleLabel} on this date.</div>`}
       ${missingFromDiscord.length ? `
       <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);">
-        <div style="font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--gold);margin-bottom:7px;">On the ${roleLabel} scoreboard for this date, but not spotted in Discord (${missingFromDiscord.length})</div>
-        ${missingFromDiscord.map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('')}
+        <div style="font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--gold);margin-bottom:7px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span>On the ${roleLabel} scoreboard for this date, but not spotted in Discord (${missingFromDiscord.length}) — tap a name to mark present</span>
+          <button class="btn ghost small" data-dl-add-all="${role}" style="padding:3px 9px;font-size:11px;">Mark all present</button>
+        </div>
+        ${missingFromDiscord.map(n=>`<span class="chip" style="cursor:pointer;" data-dl-add-missing="${escapeHtml(n)}" data-dl-role="${role}" title="Mark ${escapeHtml(n)} present">+ ${escapeHtml(n)}</span>`).join('')}
       </div>` : ''}
     </div>
   `;
@@ -2065,25 +2091,85 @@ function discordLogRoleSection(roleLabel, roleClass, members, capacity, date, ro
 function renderDiscordLogBody(group){
   const body = $(safeDomId(group.date));
   if(!body) return;
+  const roles = [['Elite','role-elite',group.Elite,eliteCapacity],['Sub','role-sub',group.Sub,subCapacity]];
   body.innerHTML = `
     <div style="padding:14px 18px 18px;">
-      ${discordLogRoleSection('Elite', 'role-elite', group.Elite, eliteCapacity, group.date, 'Elite')}
-      ${discordLogRoleSection('Sub', 'role-sub', group.Sub, subCapacity, group.date, 'Sub')}
-      ${isAdmin() ? `<div style="display:flex; justify-content:flex-end; gap:8px; margin-top:6px;">
+      ${roles.map(r=>discordLogRoleSection(r[0], r[1], r[2], r[3], group.date, r[0])).join('')}
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:6px; flex-wrap:wrap;">
         ${group.Elite.length ? `<button class="btn danger small" data-delete-discordlog="Elite">Delete Elite log</button>` : ''}
         ${group.Sub.length ? `<button class="btn danger small" data-delete-discordlog="Sub">Delete Sub log</button>` : ''}
-      </div>` : ''}
+      </div>
     </div>
   `;
+  const refresh = async ()=>{ await loadDiscordAttendanceLog(); renderDiscordLogTab(); };
+
+  body.querySelectorAll('[data-dl-edit]').forEach(btn=>btn.addEventListener('click', ()=>{
+    discordLogEdit = { date: group.date, role: btn.dataset.dlEdit };
+    renderDiscordLogTab();
+  }));
+  body.querySelectorAll('[data-dl-done]').forEach(btn=>btn.addEventListener('click', ()=>{
+    discordLogEdit = null;
+    renderDiscordLogTab();
+  }));
+
+  const addMember = async (role, name)=>{
+    if(!name) return;
+    const { error } = await sb.from('discord_attendance').insert({ guild_id: guildId, date: group.date, role, member_name: name });
+    if(error){ setStatus("Couldn't add member.", 'error'); return; }
+    await logActivity('Edited Discord log', `Added ${name} — ${role} ${group.date}`);
+    await refresh();
+  };
+  body.querySelectorAll('[data-dl-add]').forEach(sel=>sel.addEventListener('change', e=>addMember(sel.dataset.dlAdd, e.target.value)));
+  body.querySelectorAll('[data-dl-add-missing]').forEach(chip=>chip.addEventListener('click', ()=>addMember(chip.dataset.dlRole, chip.dataset.dlAddMissing)));
+
+  body.querySelectorAll('[data-dl-add-all]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const role = btn.dataset.dlAddAll;
+    const have = new Set((role==='Elite' ? group.Elite : group.Sub));
+    const names = [...namesOnScoreboardForDateAndRole(group.date, role)].filter(n=>!have.has(n));
+    if(!names.length) return;
+    if(!confirm(`Mark all ${names.length} remaining ${role} members present for ${group.date}?`)) return;
+    const { error } = await sb.from('discord_attendance').insert(names.map(n=>({ guild_id: guildId, date: group.date, role, member_name: n })));
+    if(error){ setStatus("Couldn't update attendance.", 'error'); return; }
+    await logActivity('Edited Discord log', `Marked ${names.length} present — ${role} ${group.date}`);
+    await refresh();
+  }));
+  body.querySelectorAll('[data-dl-remove-member]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const name = btn.dataset.dlRemoveMember, role = btn.dataset.dlRole;
+    if(!confirm(`Remove ${name} from the ${role} Discord log for ${group.date}?`)) return;
+    const { error } = await sb.from('discord_attendance').delete().eq('guild_id', guildId).eq('date', group.date).eq('role', role).eq('member_name', name);
+    if(error){ setStatus("Couldn't remove member.", 'error'); return; }
+    await logActivity('Edited Discord log', `Removed ${name} — ${role} ${group.date}`);
+    await refresh();
+  }));
+
+  body.querySelectorAll('[data-dl-save-date]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const role = btn.dataset.dlSaveDate;
+    const newDate = ($(`dl-date-${role}`).value || '').trim();
+    if(!newDate || newDate===group.date) return;
+    if(!confirm(`Move the ${role} Discord log from ${group.date} to ${newDate}?`)) return;
+    // Skip anyone already logged on the target date so we don't create duplicates.
+    const existing = new Set(discordAttendanceLog.filter(r=>r.date===newDate && r.role===role).map(r=>r.member_name));
+    const moving = (role==='Elite' ? group.Elite : group.Sub);
+    const toInsert = moving.filter(n=>!existing.has(n)).map(n=>({ guild_id: guildId, date: newDate, role, member_name: n }));
+    if(toInsert.length){
+      const { error: insErr } = await sb.from('discord_attendance').insert(toInsert);
+      if(insErr){ setStatus("Couldn't change date.", 'error'); return; }
+    }
+    await sb.from('discord_attendance').delete().eq('guild_id', guildId).eq('date', group.date).eq('role', role);
+    await logActivity('Edited Discord log', `Moved ${role} log ${group.date} → ${newDate}`);
+    discordLogEdit = { date: newDate, role };
+    expandedDiscordLogKey = newDate;
+    await refresh();
+  }));
+
   body.querySelectorAll('[data-delete-discordlog]').forEach(btn=>btn.addEventListener('click', async ()=>{
-    if(!isAdmin()) return;
     const role = btn.dataset.deleteDiscordlog;
     if(!confirm(`Delete the ${role} Discord attendance log for ${group.date}? This can't be undone.`)) return;
     await sb.from('discord_attendance').delete().eq('guild_id', guildId).eq('date', group.date).eq('role', role);
     await logActivity('Deleted Discord log', `${role} — ${group.date}`);
+    discordLogEdit = null;
     expandedDiscordLogKey = null;
-    await loadDiscordAttendanceLog();
-    renderDiscordLogTab();
+    await refresh();
   }));
 }
 
