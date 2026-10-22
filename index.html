@@ -1539,6 +1539,54 @@ function nameSelectHtml(dataAttr, idx, rows, date, excludeSessionId){
   return `<select data-${dataAttr}="name" data-idx="${idx}"><option value="">— Select player —</option>${opts.map(n=>`<option value="${escapeHtml(n)}" ${n===current?'selected':''}>${escapeHtml(n)}</option>`).join('')}</select>`;
 }
 
+
+/* ========================= Name matching for scans ========================= */
+// Scoreboard fonts/styling often make the same name read differently (fullwidth
+// or fancy letters, accents, spaces/symbols, I vs l vs 1, O vs 0). These build a
+// "match key" so such variants resolve to the one roster name.
+function nameKey(name){
+  let k = String(name||'').normalize('NFKC').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+  k = k.replace(/[il1|!ı]/g,'i').replace(/0/g,'o');
+  return k.replace(/[^\p{L}\p{N}]/gu,'');
+}
+function nameKeyAscii(name){ return nameKey(name).replace(/[^a-z0-9]/g,''); }
+function matchRosterByKey(scanned){
+  const k = nameKey(scanned);
+  if(!k) return null;
+  const exact = roster.filter(m=>nameKey(m.name)===k);
+  if(exact.length===1) return exact[0].name;
+  if(exact.length>1) return null;
+  const ka = nameKeyAscii(scanned);
+  if(ka.length>=3){
+    const loose = roster.filter(m=>nameKeyAscii(m.name)===ka);
+    if(loose.length===1) return loose[0].name;
+  }
+  return null;
+}
+// Maps scanned rows onto roster names and drops rows for a player who is already
+// in `existingRows` (or earlier in the same scan) — e.g. overlapping screenshots.
+function canonicalizeScannedRows(rows, existingRows){
+  const seen = new Set((existingRows||[]).map(r=>nameKey(r.name)).filter(Boolean));
+  const out = []; let renamed = 0, skipped = 0;
+  (rows||[]).forEach(r=>{
+    const original = String(r.name||'').trim();
+    const match = matchRosterByKey(original);
+    const finalName = match || original;
+    if(match && match!==original) renamed++;
+    const key = nameKey(finalName);
+    if(key && seen.has(key)){ skipped++; return; }
+    if(key) seen.add(key);
+    out.push({ ...r, name: finalName });
+  });
+  return { rows: out, renamed, skipped };
+}
+function scanSummary(file, added, renamed, skipped){
+  let msg = 'Added '+added+' row(s) from '+file.name+'.';
+  if(renamed) msg += ' '+renamed+' name(s) matched to the roster.';
+  if(skipped) msg += ' '+skipped+' duplicate player row(s) skipped.';
+  return msg;
+}
+
 function fileToBase64(file){
   return new Promise((resolve,reject)=>{
     const r=new FileReader();
@@ -1563,9 +1611,10 @@ async function handleScanFiles(fileList){
       const data = await res.json();
       if(!res.ok) throw new Error(data.error || 'Scan failed');
       if(!data.rows || data.rows.length===0) throw new Error('No rows found');
-      draftEntries = draftEntries.concat(data.rows);
+      const c = canonicalizeScannedRows(data.rows, draftEntries);
+      draftEntries = draftEntries.concat(c.rows);
       statusEl.className='status-line ok';
-      statusEl.textContent = 'Added '+data.rows.length+' row(s) from '+file.name+'.';
+      statusEl.textContent = scanSummary(file, c.rows.length, c.renamed, c.skipped);
     }catch(err){
       statusEl.className='status-line error';
       statusEl.textContent = "Couldn't read "+file.name+" — "+(err.message||'try again or add rows manually.');
@@ -1991,9 +2040,10 @@ async function handleEditScanFiles(id, fileList){
       if(!res.ok) throw new Error(data.error || 'Scan failed');
       if(!data.rows || data.rows.length===0) throw new Error('No rows found');
       if(!sessionEdit || sessionEdit.id!==id) return;
-      sessionEdit.rows = sessionEdit.rows.concat(data.rows.map(r=>({ rank:r.rank||'', name:r.name||'', tablets:r.tablets||0, monsters:r.monsters||0, kills:r.kills||0, assists:r.assists||0, deaths:r.deaths||0, score:r.score||0 })));
+      const c = canonicalizeScannedRows(data.rows, sessionEdit.rows);
+      sessionEdit.rows = sessionEdit.rows.concat(c.rows.map(r=>({ rank:r.rank||'', name:r.name||'', tablets:r.tablets||0, monsters:r.monsters||0, kills:r.kills||0, assists:r.assists||0, deaths:r.deaths||0, score:r.score||0 })));
       renderSessionEdit(id);
-      setMsg('ok', 'Added '+data.rows.length+' row(s) from '+file.name+'. Review, then Save changes.');
+      setMsg('ok', scanSummary(file, c.rows.length, c.renamed, c.skipped)+' Review, then Save changes.');
     }catch(err){
       setMsg('error', "Couldn't read "+file.name+" — "+(err.message||'try again or add rows manually.'));
     }
