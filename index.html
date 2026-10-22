@@ -1162,7 +1162,13 @@ function computeRosterStats(){
     const subSessions = (attendedDatesSub[m.name] || new Set()).size;
     const dateScores = Object.values(scoreByDate[m.name] || {});
     const totalScore = dateScores.reduce((a,b)=>a+b, 0);
-    return { ...m, sessions: daysAttended, eliteSessions, subSessions, attendance: totalDays?(daysAttended/totalDays*100):0, avgScore: daysAttended?(totalScore/daysAttended):0 };
+    // Only count war days from the member's FIRST recorded appearance onward —
+    // wars that happened before they joined the guild shouldn't count against
+    // them. (Members with no records yet have no eligible days, so 0%.)
+    const attendedList = [...(attendedDates[m.name] || [])].sort();
+    const firstDate = attendedList[0];
+    const eligibleDays = firstDate ? uniqueDates.filter(d=>d>=firstDate).length : 0;
+    return { ...m, sessions: daysAttended, eligibleDays, eliteSessions, subSessions, attendance: eligibleDays?(daysAttended/eligibleDays*100):0, avgScore: daysAttended?(totalScore/daysAttended):0 };
   });
 }
 
