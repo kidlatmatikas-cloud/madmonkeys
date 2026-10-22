@@ -1437,6 +1437,7 @@ function renderNewTab(){
           </select>
         </div>
       </div>
+      <div id="nf-discord-tools"></div>
       <div id="nf-discord-dropzone" style="text-align:center; padding:22px 16px; cursor:pointer; border:1px dashed var(--line-strong); margin-bottom:6px;">
         <div style="font-weight:700;">Drop a Discord screenshot or click to browse</div>
         <input type="file" id="nf-discord-file-input" accept="image/*" style="display:none;">
@@ -1693,7 +1694,61 @@ async function handleDiscordScan(file){
   }
   renderDiscordReview();
 }
+// Manual alternative to scanning a Discord screenshot: pull everyone on the
+// Session Log for the chosen date + role, then remove (✕) whoever wasn't in
+// Discord, and/or add anyone else from the roster.
+function addDiscordAttendee(discordName, matchedName){
+  const already = discordRole ? namesAlreadyInDiscordLog(draftDate, discordRole) : new Set();
+  discordAttendees.push({ discordName, matchedName, alreadyRecorded: matchedName ? already.has(matchedName) : false });
+}
+function pullDiscordFromSessionLog(){
+  const statusEl = $('nf-discord-status');
+  const setMsg = (cls,msg)=>{ if(statusEl){ statusEl.className='status-line'+(cls?' '+cls:''); statusEl.textContent=msg; } };
+  if(!draftDate){ setMsg('error','Set the Date above first.'); return; }
+  if(!discordRole){ setMsg('error','Pick Elite or Sub first, so it pulls from the right Session Log records.'); return; }
+  const names = [...namesOnScoreboardForDateAndRole(draftDate, discordRole)].sort((a,b)=>a.localeCompare(b));
+  if(names.length===0){ setMsg('error',`No ${discordRole} records in the Session Log for ${draftDate}.`); return; }
+  const have = new Set(discordAttendees.map(a=>a.matchedName||a.discordName));
+  let added = 0;
+  names.forEach(n=>{
+    if(have.has(n)) return;
+    const matched = roster.some(m=>m.name===n) ? n : (matchRosterByKey(n) || '');
+    addDiscordAttendee(n, matched);
+    added++;
+  });
+  setMsg('ok', `Pulled ${added} name(s) from the ${discordRole} Session Log for ${draftDate}. Remove (✕) anyone who wasn't in Discord, then press Log Attendance.`);
+  renderDiscordReview();
+}
+function renderDiscordTools(){
+  const el = $('nf-discord-tools');
+  if(!el) return;
+  const have = new Set(discordAttendees.map(a=>a.matchedName).filter(Boolean));
+  const free = roster.map(m=>m.name).filter(n=>!have.has(n)).sort((a,b)=>a.localeCompare(b));
+  el.innerHTML = `
+    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:14px;">
+      <button class="btn gold small" id="nf-discord-pull">Pull from Session Log</button>
+      <div style="flex:0 1 260px;">
+        <label for="nf-discord-add">Add a member manually</label>
+        <select id="nf-discord-add"><option value="">— Select member —</option>${free.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')}</select>
+      </div>
+    </div>
+  `;
+  $('nf-discord-pull').addEventListener('click', pullDiscordFromSessionLog);
+  $('nf-discord-add').addEventListener('change', e=>{
+    const n = e.target.value;
+    if(!n) return;
+    if(!discordRole){
+      const st = $('nf-discord-status');
+      if(st){ st.className='status-line error'; st.textContent='Pick Elite or Sub first.'; }
+      e.target.value = '';
+      return;
+    }
+    addDiscordAttendee(n, n);
+    renderDiscordReview();
+  });
+}
 function renderDiscordReview(){
+  renderDiscordTools();
   const wrap = $('nf-discord-review');
   if(!wrap) return;
   if(discordAttendees.length===0){ wrap.innerHTML=''; return; }
